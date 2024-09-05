@@ -1,19 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 /***************************************************************************
  *   Copyright (C) 2016 by Uladzimir Pylinski aka barthess                 *
  *   barthess@yandex.ru                                                    *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -141,8 +130,8 @@ static struct xcf_status read_status(struct flash_bank *bank)
 	jtag_add_ir_scan(bank->target->tap, &scan, TAP_IDLE);
 	jtag_execute_queue();
 
-	ret.isc_error   = ((irdata[0] >> 7) & 3) == 0b01;
-	ret.prog_error  = ((irdata[0] >> 5) & 3) == 0b01;
+	ret.isc_error   = ((irdata[0] >> 7) & 3) == 1;
+	ret.prog_error  = ((irdata[0] >> 5) & 3) == 1;
 	ret.prog_busy   = ((irdata[0] >> 4) & 1) == 0;
 	ret.isc_mode    = ((irdata[0] >> 3) & 1) == 1;
 
@@ -539,7 +528,7 @@ static int isc_program_single_revision_btc(struct flash_bank *bank)
 {
 	uint8_t buf[4];
 	uint32_t btc = 0xFFFFFFFF;
-	btc &= ~0b1111;
+	btc &= ~0xF;
 	btc |= ((bank->num_sectors - 1) << 2);
 	btc &= ~(1 << 4);
 	h_u32_to_le(buf, btc);
@@ -608,7 +597,7 @@ static int xcf_probe(struct flash_bank *bank)
 	}
 
 	/* check idcode and alloc memory for sector table */
-	if (!bank->target->tap->hasidcode)
+	if (!bank->target->tap->has_idcode)
 		return ERROR_FLASH_OPERATION_FAILED;
 
 	/* guess number of blocks using chip ID */

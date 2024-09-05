@@ -1,22 +1,11 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+
 /***************************************************************************
  *   Copyright (C) 2005 by Dominic Rath <Dominic.Rath@gmx.de>              *
  *   Copyright (C) 2007,2008 Øyvind Harboe <oyvind.harboe@zylin.com>       *
  *   Copyright (C) 2008 by Spencer Oliver <spen@spen-soft.co.uk>           *
  *   Copyright (C) 2009 Zachary T Welch <zw@superlucidity.net>             *
  *   Copyright (C) 2010 by Antonio Borneo <borneo.antonio@gmail.com>       *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 #ifndef OPENOCD_FLASH_NOR_CORE_H
@@ -31,8 +20,6 @@
 
 struct image;
 
-#define FLASH_MAX_ERROR_STR	(128)
-
 /**
  * Describes the geometry and status of a single flash sector
  * within a flash bank.  A single bank typically consists of multiple
@@ -45,18 +32,18 @@ struct flash_sector {
 	uint32_t size;
 	/**
 	 * Indication of erasure status: 0 = not erased, 1 = erased,
-	 * other = unknown.  Set by @c flash_driver_s::erase_check only.
+	 * other = unknown.  Set by @c flash_driver::erase_check only.
 	 *
 	 * This information must be considered stale immediately.
-	 * Don't set it in flash_driver_s::erase or a device mass_erase
-	 * Don't clear it in flash_driver_s::write
+	 * Don't set it in flash_driver::erase or a device mass_erase
+	 * Don't clear it in flash_driver::write
 	 * The flag is not used in a protection block
 	 */
 	int is_erased;
 	/**
 	 * Indication of protection status: 0 = unprotected/unlocked,
 	 * 1 = protected/locked, other = unknown.  Set by
-	 * @c flash_driver_s::protect_check.
+	 * @c flash_driver::protect_check.
 	 *
 	 * This information must be considered stale immediately.
 	 * A million things could make it stale: power cycle,
@@ -80,7 +67,7 @@ struct flash_sector {
  * a major interface.
  *
  * This structure will be passed as a parameter to the callbacks in the
- * flash_driver_s structure, some of which may modify the contents of
+ * flash_driver structure, some of which may modify the contents of
  * this structure of the area of flash that it defines.  Driver writers
  * may use the @c driver_priv member to store additional data on a
  * per-bank basis, if required.
@@ -265,6 +252,19 @@ int get_flash_bank_by_num(unsigned int num, struct flash_bank **bank);
  */
 COMMAND_HELPER(flash_command_get_bank, unsigned name_index,
 		struct flash_bank **bank);
+/**
+ * Retrieves @a bank from a command argument, reporting errors parsing
+ * the bank identifier or retrieving the specified bank.  The bank
+ * may be identified by its bank number or by @c name.instance, where
+ * @a instance is driver-specific.
+ * @param name_index The index to the string in args containing the
+ * bank identifier.
+ * @param bank On output, contains a pointer to the bank or NULL.
+ * @param do_probe Does auto-probing when set, otherwise without probing.
+ * @returns ERROR_OK on success, or an error indicating the problem.
+ */
+COMMAND_HELPER(flash_command_get_bank_probe_optional, unsigned int name_index,
+		struct flash_bank **bank, bool do_probe);
 /**
  * Returns the flash bank like get_flash_bank_by_num(), without probing.
  * @param num The flash bank number.

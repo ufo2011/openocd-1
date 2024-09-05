@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 /*
  * JTAG to DPI driver
  *
@@ -7,19 +9,6 @@
  *
  * See file CREDITS for list of people who contributed to this
  * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -174,7 +163,7 @@ out:
 	return ret;
 }
 
-static int jtag_dpi_runtest(int cycles)
+static int jtag_dpi_runtest(unsigned int num_cycles)
 {
 	char buf[20];
 	uint8_t *data_buf = last_ir_buf, *read_scan;
@@ -200,7 +189,7 @@ static int jtag_dpi_runtest(int cycles)
 		return ERROR_FAIL;
 	}
 	snprintf(buf, sizeof(buf), "ib %d\n", num_bits);
-	while (cycles > 0) {
+	while (num_cycles > 0) {
 		ret = write_sock(buf, strlen(buf));
 		if (ret != ERROR_OK) {
 			LOG_ERROR("write_sock() fail, file %s, line %d",
@@ -220,7 +209,7 @@ static int jtag_dpi_runtest(int cycles)
 			goto out;
 		}
 
-		cycles -= num_bits + 6;
+		num_cycles -= num_bits + 6;
 	}
 
 out:
@@ -228,17 +217,17 @@ out:
 	return ret;
 }
 
-static int jtag_dpi_stableclocks(int cycles)
+static int jtag_dpi_stableclocks(unsigned int num_cycles)
 {
-	return jtag_dpi_runtest(cycles);
+	return jtag_dpi_runtest(num_cycles);
 }
 
-static int jtag_dpi_execute_queue(void)
+static int jtag_dpi_execute_queue(struct jtag_command *cmd_queue)
 {
 	struct jtag_command *cmd;
 	int ret = ERROR_OK;
 
-	for (cmd = jtag_command_queue; ret == ERROR_OK && cmd;
+	for (cmd = cmd_queue; ret == ERROR_OK && cmd;
 	     cmd = cmd->next) {
 		switch (cmd->type) {
 		case JTAG_RUNTEST:

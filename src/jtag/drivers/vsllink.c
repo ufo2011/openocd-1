@@ -1,18 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 /***************************************************************************
  *   Copyright (C) 2009-2010 by Simon Qian <SimonQian@SimonQian.com>       *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 /* Versaloon is a programming tool for multiple MCUs.
@@ -54,10 +43,10 @@ static struct pending_scan_result
 /* Queue command functions */
 static void vsllink_end_state(tap_state_t state);
 static void vsllink_state_move(void);
-static void vsllink_path_move(int num_states, tap_state_t *path);
+static void vsllink_path_move(unsigned int num_states, tap_state_t *path);
 static void vsllink_tms(int num_bits, const uint8_t *bits);
-static void vsllink_runtest(int num_cycles);
-static void vsllink_stableclocks(int num_cycles, int tms);
+static void vsllink_runtest(unsigned int num_cycles);
+static void vsllink_stableclocks(unsigned int num_cycles, int tms);
 static void vsllink_scan(bool ir_scan, enum scan_type type,
 		uint8_t *buffer, int scan_size, struct scan_command *command);
 static int vsllink_reset(int trst, int srst);
@@ -95,9 +84,9 @@ static bool swd_mode;
 
 static struct vsllink *vsllink_handle;
 
-static int vsllink_execute_queue(void)
+static int vsllink_execute_queue(struct jtag_command *cmd_queue)
 {
-	struct jtag_command *cmd = jtag_command_queue;
+	struct jtag_command *cmd = cmd_queue;
 	int scan_size;
 	enum scan_type type;
 	uint8_t *buffer;
@@ -109,7 +98,7 @@ static int vsllink_execute_queue(void)
 	while (cmd) {
 		switch (cmd->type) {
 			case JTAG_RUNTEST:
-				LOG_DEBUG_IO("runtest %i cycles, end in %s",
+				LOG_DEBUG_IO("runtest %u cycles, end in %s",
 						cmd->cmd.runtest->num_cycles,
 						tap_state_name(cmd->cmd.runtest->end_state));
 
@@ -126,7 +115,7 @@ static int vsllink_execute_queue(void)
 				break;
 
 			case JTAG_PATHMOVE:
-				LOG_DEBUG_IO("pathmove: %i states, end in %s",
+				LOG_DEBUG_IO("pathmove: %u states, end in %s",
 						cmd->cmd.pathmove->num_states,
 						tap_state_name(cmd->cmd.pathmove->path[cmd->cmd.pathmove->num_states - 1]));
 
@@ -172,7 +161,7 @@ static int vsllink_execute_queue(void)
 				break;
 
 			case JTAG_STABLECLOCKS:
-				LOG_DEBUG_IO("add %d clocks",
+				LOG_DEBUG_IO("add %u clocks",
 						cmd->cmd.stableclocks->num_cycles);
 
 				switch (tap_get_state()) {
@@ -273,6 +262,7 @@ static int vsllink_quit(void)
 	vsllink_free_buffer();
 	vsllink_usb_close(vsllink_handle);
 
+	libusb_exit(vsllink_handle->libusb_ctx);
 	free(vsllink_handle);
 
 	return ERROR_OK;
@@ -381,9 +371,9 @@ static void vsllink_state_move(void)
 	tap_set_state(tap_get_end_state());
 }
 
-static void vsllink_path_move(int num_states, tap_state_t *path)
+static void vsllink_path_move(unsigned int num_states, tap_state_t *path)
 {
-	for (int i = 0; i < num_states; i++) {
+	for (unsigned int i = 0; i < num_states; i++) {
 		if (path[i] == tap_state_transition(tap_get_state(), false))
 			vsllink_tap_append_step(0, 0);
 		else if (path[i] == tap_state_transition(tap_get_state(), true))
@@ -407,7 +397,7 @@ static void vsllink_tms(int num_bits, const uint8_t *bits)
 		vsllink_tap_append_step((bits[i / 8] >> (i % 8)) & 1, 0);
 }
 
-static void vsllink_stableclocks(int num_cycles, int tms)
+static void vsllink_stableclocks(unsigned int num_cycles, int tms)
 {
 	while (num_cycles > 0) {
 		vsllink_tap_append_step(tms, 0);
@@ -415,7 +405,7 @@ static void vsllink_stableclocks(int num_cycles, int tms)
 	}
 }
 
-static void vsllink_runtest(int num_cycles)
+static void vsllink_runtest(unsigned int num_cycles)
 {
 	tap_state_t saved_end_state = tap_get_end_state();
 
@@ -496,21 +486,6 @@ COMMAND_HANDLER(vsllink_handle_usb_pid_command)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 	COMMAND_PARSE_NUMBER(u16, CMD_ARGV[0],
 		versaloon_interface.usb_setting.pid);
-	return ERROR_OK;
-}
-
-COMMAND_HANDLER(vsllink_handle_usb_serial_command)
-{
-	if (CMD_ARGC > 1)
-		return ERROR_COMMAND_SYNTAX_ERROR;
-
-	free(versaloon_interface.usb_setting.serialstring);
-
-	if (CMD_ARGC == 1)
-		versaloon_interface.usb_setting.serialstring = strdup(CMD_ARGV[0]);
-	else
-		versaloon_interface.usb_setting.serialstring = NULL;
-
 	return ERROR_OK;
 }
 
@@ -786,14 +761,14 @@ static int vsllink_check_usb_strings(
 	char desc_string[256];
 	int retval;
 
-	if (versaloon_interface.usb_setting.serialstring) {
+	if (adapter_get_required_serial()) {
 		retval = libusb_get_string_descriptor_ascii(usb_device_handle,
 			usb_desc->iSerialNumber, (unsigned char *)desc_string,
 			sizeof(desc_string));
 		if (retval < 0)
 			return ERROR_FAIL;
 
-		if (strncmp(desc_string, versaloon_interface.usb_setting.serialstring,
+		if (strncmp(desc_string, adapter_get_required_serial(),
 				sizeof(desc_string)))
 			return ERROR_FAIL;
 	}
@@ -902,13 +877,6 @@ static const struct command_registration vsllink_subcommand_handlers[] = {
 		.mode = COMMAND_CONFIG,
 		.help = "Set USB PID",
 		.usage = "<pid>",
-	},
-	{
-		.name = "usb_serial",
-		.handler = &vsllink_handle_usb_serial_command,
-		.mode = COMMAND_CONFIG,
-		.help = "Set or disable check for USB serial",
-		.usage = "[<serial>]",
 	},
 	{
 		.name = "usb_bulkin",

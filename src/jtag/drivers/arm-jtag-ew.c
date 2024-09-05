@@ -1,19 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 /***************************************************************************
  *   Copyright (C) 2009 by Dimitar Dimitrov <dinuxbg@gmail.com>            *
  *   based on Dominic Rath's and Benedikt Sauter's usbprog.c               *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -55,8 +44,8 @@ static uint8_t usb_out_buffer[ARMJTAGEW_OUT_BUFFER_SIZE];
 /* Queue command functions */
 static void armjtagew_end_state(tap_state_t state);
 static void armjtagew_state_move(void);
-static void armjtagew_path_move(int num_states, tap_state_t *path);
-static void armjtagew_runtest(int num_cycles);
+static void armjtagew_path_move(unsigned int num_states, tap_state_t *path);
+static void armjtagew_runtest(unsigned int num_cycles);
 static void armjtagew_scan(bool ir_scan,
 		enum scan_type type,
 		uint8_t *buffer,
@@ -96,9 +85,9 @@ static struct armjtagew *armjtagew_handle;
 /**************************************************************************
  * External interface implementation */
 
-static int armjtagew_execute_queue(void)
+static int armjtagew_execute_queue(struct jtag_command *cmd_queue)
 {
-	struct jtag_command *cmd = jtag_command_queue;
+	struct jtag_command *cmd = cmd_queue;
 	int scan_size;
 	enum scan_type type;
 	uint8_t *buffer;
@@ -106,7 +95,7 @@ static int armjtagew_execute_queue(void)
 	while (cmd) {
 		switch (cmd->type) {
 			case JTAG_RUNTEST:
-				LOG_DEBUG_IO("runtest %i cycles, end in %i",
+				LOG_DEBUG_IO("runtest %u cycles, end in %i",
 						cmd->cmd.runtest->num_cycles,
 						cmd->cmd.runtest->end_state);
 
@@ -122,7 +111,7 @@ static int armjtagew_execute_queue(void)
 				break;
 
 			case JTAG_PATHMOVE:
-				LOG_DEBUG_IO("pathmove: %i states, end in %i",
+				LOG_DEBUG_IO("pathmove: %u states, end in %i",
 						cmd->cmd.pathmove->num_states,
 						cmd->cmd.pathmove->path[cmd->cmd.pathmove->num_states - 1]);
 
@@ -224,7 +213,7 @@ static int armjtagew_init(void)
 
 	armjtagew_handle = armjtagew_usb_open();
 
-	if (armjtagew_handle == 0) {
+	if (!armjtagew_handle) {
 		LOG_ERROR(
 			"Cannot find ARM-JTAG-EW Interface! Please check connection and permissions.");
 		return ERROR_JTAG_INIT_FAILED;
@@ -290,11 +279,9 @@ static void armjtagew_state_move(void)
 	tap_set_state(tap_get_end_state());
 }
 
-static void armjtagew_path_move(int num_states, tap_state_t *path)
+static void armjtagew_path_move(unsigned int num_states, tap_state_t *path)
 {
-	int i;
-
-	for (i = 0; i < num_states; i++) {
+	for (unsigned int i = 0; i < num_states; i++) {
 		/*
 		 * TODO: The ARM-JTAG-EW hardware delays TDI with 3 TCK cycles when in RTCK mode.
 		 * Either handle that here, or update the documentation with examples
@@ -316,10 +303,8 @@ static void armjtagew_path_move(int num_states, tap_state_t *path)
 	tap_set_end_state(tap_get_state());
 }
 
-static void armjtagew_runtest(int num_cycles)
+static void armjtagew_runtest(unsigned int num_cycles)
 {
-	int i;
-
 	tap_state_t saved_end_state = tap_get_end_state();
 
 	/* only do a state_move when we're not already in IDLE */
@@ -329,7 +314,7 @@ static void armjtagew_runtest(int num_cycles)
 	}
 
 	/* execute num_cycles */
-	for (i = 0; i < num_cycles; i++)
+	for (unsigned int i = 0; i < num_cycles; i++)
 		armjtagew_tap_append_step(0, 0);
 
 	/* finish in end_state */
@@ -787,17 +772,12 @@ static int armjtagew_usb_read(struct armjtagew *armjtagew, int exp_in_length)
 
 static void armjtagew_debug_buffer(uint8_t *buffer, int length)
 {
-	char line[81];
-	char s[4];
-	int i;
-	int j;
+	char line[8 + 3 * BYTES_PER_LINE + 1];
 
-	for (i = 0; i < length; i += BYTES_PER_LINE) {
-		snprintf(line, 5, "%04x", i);
-		for (j = i; j < i + BYTES_PER_LINE && j < length; j++) {
-			snprintf(s, 4, " %02x", buffer[j]);
-			strcat(line, s);
-		}
+	for (int i = 0; i < length; i += BYTES_PER_LINE) {
+		int n = snprintf(line, 9, "%04x", i);
+		for (int j = i; j < i + BYTES_PER_LINE && j < length; j++)
+			n += snprintf(line + n, 4, " %02x", buffer[j]);
 		LOG_DEBUG("%s", line);
 
 		/* Prevent GDB timeout (writing to log might take some time) */

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 /***************************************************************************
  *                                                                         *
  *   Copyright (C) 2009 by Cahya Wirawan <cahya@gmx.at>                    *
@@ -11,19 +13,6 @@
  *                                                                         *
  *   Copyright (C) 2008 by Spencer Oliver                                  *
  *   spen@spen-soft.co.uk                                                  *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -110,15 +99,15 @@ static char *opendous_type;
 static const struct opendous_probe *opendous_probe;
 
 /* External interface functions */
-static int opendous_execute_queue(void);
+static int opendous_execute_queue(struct jtag_command *cmd_queue);
 static int opendous_init(void);
 static int opendous_quit(void);
 
 /* Queue command functions */
 static void opendous_end_state(tap_state_t state);
 static void opendous_state_move(void);
-static void opendous_path_move(int num_states, tap_state_t *path);
-static void opendous_runtest(int num_cycles);
+static void opendous_path_move(unsigned int num_states, tap_state_t *path);
+static void opendous_runtest(unsigned int num_cycles);
 static void opendous_scan(int ir_scan, enum scan_type type, uint8_t *buffer,
 		int scan_size, struct scan_command *command);
 static void opendous_reset(int trst, int srst);
@@ -249,9 +238,9 @@ struct adapter_driver opendous_adapter_driver = {
 	.jtag_ops = &opendous_interface,
 };
 
-static int opendous_execute_queue(void)
+static int opendous_execute_queue(struct jtag_command *cmd_queue)
 {
-	struct jtag_command *cmd = jtag_command_queue;
+	struct jtag_command *cmd = cmd_queue;
 	int scan_size;
 	enum scan_type type;
 	uint8_t *buffer;
@@ -259,7 +248,7 @@ static int opendous_execute_queue(void)
 	while (cmd) {
 		switch (cmd->type) {
 			case JTAG_RUNTEST:
-				LOG_DEBUG_IO("runtest %i cycles, end in %i", cmd->cmd.runtest->num_cycles,
+				LOG_DEBUG_IO("runtest %u cycles, end in %i", cmd->cmd.runtest->num_cycles,
 					cmd->cmd.runtest->end_state);
 
 				if (cmd->cmd.runtest->end_state != -1)
@@ -276,7 +265,7 @@ static int opendous_execute_queue(void)
 				break;
 
 			case JTAG_PATHMOVE:
-				LOG_DEBUG_IO("pathmove: %i states, end in %i",
+				LOG_DEBUG_IO("pathmove: %u states, end in %i",
 					cmd->cmd.pathmove->num_states,
 					cmd->cmd.pathmove->path[cmd->cmd.pathmove->num_states - 1]);
 
@@ -358,7 +347,7 @@ static int opendous_init(void)
 
 	opendous_jtag_handle = opendous_usb_open();
 
-	if (opendous_jtag_handle == 0) {
+	if (!opendous_jtag_handle) {
 		LOG_ERROR("Cannot find opendous Interface! Please check connection and permissions.");
 		return ERROR_JTAG_INIT_FAILED;
 	}
@@ -430,11 +419,9 @@ void opendous_state_move(void)
 	tap_set_state(tap_get_end_state());
 }
 
-void opendous_path_move(int num_states, tap_state_t *path)
+void opendous_path_move(unsigned int num_states, tap_state_t *path)
 {
-	int i;
-
-	for (i = 0; i < num_states; i++) {
+	for (unsigned int i = 0; i < num_states; i++) {
 		if (path[i] == tap_state_transition(tap_get_state(), false))
 			opendous_tap_append_step(0, 0);
 		else if (path[i] == tap_state_transition(tap_get_state(), true))
@@ -451,10 +438,8 @@ void opendous_path_move(int num_states, tap_state_t *path)
 	tap_set_end_state(tap_get_state());
 }
 
-void opendous_runtest(int num_cycles)
+void opendous_runtest(unsigned int num_cycles)
 {
-	int i;
-
 	tap_state_t saved_end_state = tap_get_end_state();
 
 	/* only do a state_move when we're not already in IDLE */
@@ -464,7 +449,7 @@ void opendous_runtest(int num_cycles)
 	}
 
 	/* execute num_cycles */
-	for (i = 0; i < num_cycles; i++)
+	for (unsigned int i = 0; i < num_cycles; i++)
 		opendous_tap_append_step(0, 0);
 
 	/* finish in end_state */
@@ -746,7 +731,7 @@ int opendous_usb_message(struct opendous_jtag *opendous_jtag, int out_length, in
 /* Write data from out_buffer to USB. */
 int opendous_usb_write(struct opendous_jtag *opendous_jtag, int out_length)
 {
-	int result;
+	int result, transferred;
 
 	if (out_length > OPENDOUS_OUT_BUFFER_SIZE) {
 		LOG_ERROR("opendous_jtag_write illegal out_length=%d (max=%d)", out_length, OPENDOUS_OUT_BUFFER_SIZE);
@@ -759,7 +744,11 @@ int opendous_usb_write(struct opendous_jtag *opendous_jtag, int out_length)
 	if (opendous_probe->CONTROL_TRANSFER) {
 		result = jtag_libusb_control_transfer(opendous_jtag->usb_handle,
 			LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT,
-			FUNC_WRITE_DATA, 0, 0, (char *) usb_out_buffer, out_length, OPENDOUS_USB_TIMEOUT);
+			FUNC_WRITE_DATA, 0, 0, (char *)usb_out_buffer, out_length, OPENDOUS_USB_TIMEOUT,
+			&transferred);
+		/* FIXME: propagate error separately from transferred */
+		if (result == ERROR_OK)
+			result = transferred;
 	} else {
 		jtag_libusb_bulk_write(opendous_jtag->usb_handle, OPENDOUS_WRITE_ENDPOINT,
 			(char *)usb_out_buffer, out_length, OPENDOUS_USB_TIMEOUT, &result);
@@ -779,6 +768,8 @@ int opendous_usb_write(struct opendous_jtag *opendous_jtag, int out_length)
 /* Read data from USB into in_buffer. */
 int opendous_usb_read(struct opendous_jtag *opendous_jtag)
 {
+	int transferred;
+
 #ifdef _DEBUG_USB_COMMS_
 	LOG_DEBUG("USB read begin");
 #endif
@@ -786,7 +777,11 @@ int opendous_usb_read(struct opendous_jtag *opendous_jtag)
 	if (opendous_probe->CONTROL_TRANSFER) {
 		result = jtag_libusb_control_transfer(opendous_jtag->usb_handle,
 			LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_IN,
-			FUNC_READ_DATA, 0, 0, (char *) usb_in_buffer, OPENDOUS_IN_BUFFER_SIZE, OPENDOUS_USB_TIMEOUT);
+			FUNC_READ_DATA, 0, 0, (char *)usb_in_buffer, OPENDOUS_IN_BUFFER_SIZE, OPENDOUS_USB_TIMEOUT,
+			&transferred);
+		/* FIXME: propagate error separately from transferred */
+		if (result == ERROR_OK)
+			result = transferred;
 	} else {
 		jtag_libusb_bulk_read(opendous_jtag->usb_handle, OPENDOUS_READ_ENDPOINT,
 			(char *)usb_in_buffer, OPENDOUS_IN_BUFFER_SIZE, OPENDOUS_USB_TIMEOUT, &result);
@@ -807,17 +802,12 @@ int opendous_usb_read(struct opendous_jtag *opendous_jtag)
 
 void opendous_debug_buffer(uint8_t *buffer, int length)
 {
-	char line[81];
-	char s[4];
-	int i;
-	int j;
+	char line[8 + 3 * BYTES_PER_LINE + 1];
 
-	for (i = 0; i < length; i += BYTES_PER_LINE) {
-		snprintf(line, 5, "%04x", i);
-		for (j = i; j < i + BYTES_PER_LINE && j < length; j++) {
-			snprintf(s, 4, " %02x", buffer[j]);
-			strcat(line, s);
-		}
+	for (int i = 0; i < length; i += BYTES_PER_LINE) {
+		int n = snprintf(line, 9, "%04x", i);
+		for (int j = i; j < i + BYTES_PER_LINE && j < length; j++)
+			n += snprintf(line + n, 4, " %02x", buffer[j]);
 		LOG_DEBUG("%s", line);
 	}
 }

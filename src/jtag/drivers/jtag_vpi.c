@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 /*
  * JTAG to VPI driver
  *
@@ -5,19 +7,6 @@
  *
  * See file CREDITS for list of people who contributed to this
  * project.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -38,8 +27,8 @@
 #define NO_TAP_SHIFT	0
 #define TAP_SHIFT	1
 
-#define SERVER_ADDRESS	"127.0.0.1"
-#define SERVER_PORT	5555
+#define DEFAULT_SERVER_ADDRESS	"127.0.0.1"
+#define DEFAULT_SERVER_PORT	5555
 
 #define	XFERT_MAX_SIZE		512
 
@@ -50,7 +39,7 @@
 #define CMD_STOP_SIMU		4
 
 /* jtag_vpi server port and address to connect to */
-static int server_port = SERVER_PORT;
+static int server_port = DEFAULT_SERVER_PORT;
 static char *server_address;
 
 /* Send CMD_STOP_SIMU to server when OpenOCD exits? */
@@ -159,7 +148,7 @@ retry_write:
 		/* This means we could not send all data, which is most likely fatal
 		   for the jtag_vpi connection (the underlying TCP connection likely not
 		   usable anymore) */
-		LOG_ERROR("Could not send all data through jtag_vpi connection.");
+		LOG_ERROR("jtag_vpi: Could not send all data through jtag_vpi connection.");
 		exit(-1);
 	}
 
@@ -265,7 +254,7 @@ static int jtag_vpi_path_move(struct pathmove_command *cmd)
 
 	memset(trans, 0, DIV_ROUND_UP(cmd->num_states, 8));
 
-	for (int i = 0; i < cmd->num_states; i++) {
+	for (unsigned int i = 0; i < cmd->num_states; i++) {
 		if (tap_state_transition(tap_get_state(), true) == cmd->path[i])
 			buf_set_u32(trans, i, 1, 1);
 		tap_set_state(cmd->path[i]);
@@ -451,7 +440,7 @@ static int jtag_vpi_scan(struct scan_command *cmd)
 	return ERROR_OK;
 }
 
-static int jtag_vpi_runtest(int cycles, tap_state_t state)
+static int jtag_vpi_runtest(unsigned int num_cycles, tap_state_t state)
 {
 	int retval;
 
@@ -459,22 +448,20 @@ static int jtag_vpi_runtest(int cycles, tap_state_t state)
 	if (retval != ERROR_OK)
 		return retval;
 
-	retval = jtag_vpi_queue_tdi(NULL, cycles, NO_TAP_SHIFT);
+	retval = jtag_vpi_queue_tdi(NULL, num_cycles, NO_TAP_SHIFT);
 	if (retval != ERROR_OK)
 		return retval;
 
 	return jtag_vpi_state_move(state);
 }
 
-static int jtag_vpi_stableclocks(int cycles)
+static int jtag_vpi_stableclocks(unsigned int num_cycles)
 {
 	uint8_t tms_bits[4];
-	int cycles_remain = cycles;
+	unsigned int cycles_remain = num_cycles;
 	int nb_bits;
 	int retval;
 	const int CYCLES_ONE_BATCH = sizeof(tms_bits) * 8;
-
-	assert(cycles >= 0);
 
 	/* use TMS=1 in TAP RESET state, TMS=0 in all other stable states */
 	memset(&tms_bits, (tap_get_state() == TAP_RESET) ? 0xff : 0x00, sizeof(tms_bits));
@@ -491,12 +478,12 @@ static int jtag_vpi_stableclocks(int cycles)
 	return ERROR_OK;
 }
 
-static int jtag_vpi_execute_queue(void)
+static int jtag_vpi_execute_queue(struct jtag_command *cmd_queue)
 {
 	struct jtag_command *cmd;
 	int retval = ERROR_OK;
 
-	for (cmd = jtag_command_queue; retval == ERROR_OK && cmd;
+	for (cmd = cmd_queue; retval == ERROR_OK && cmd;
 	     cmd = cmd->next) {
 		switch (cmd->type) {
 		case JTAG_RESET:
@@ -541,7 +528,7 @@ static int jtag_vpi_init(void)
 
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	if (sockfd < 0) {
-		LOG_ERROR("Could not create socket");
+		LOG_ERROR("jtag_vpi: Could not create client socket");
 		return ERROR_FAIL;
 	}
 
@@ -551,18 +538,18 @@ static int jtag_vpi_init(void)
 	serv_addr.sin_port = htons(server_port);
 
 	if (!server_address)
-		server_address = strdup(SERVER_ADDRESS);
+		server_address = strdup(DEFAULT_SERVER_ADDRESS);
 
 	serv_addr.sin_addr.s_addr = inet_addr(server_address);
 
 	if (serv_addr.sin_addr.s_addr == INADDR_NONE) {
-		LOG_ERROR("inet_addr error occurred");
+		LOG_ERROR("jtag_vpi: inet_addr error occurred");
 		return ERROR_FAIL;
 	}
 
 	if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
 		close(sockfd);
-		LOG_ERROR("Can't connect to %s : %u", server_address, server_port);
+		LOG_ERROR("jtag_vpi: Can't connect to %s : %u", server_address, server_port);
 		return ERROR_COMMAND_CLOSE_CONNECTION;
 	}
 
@@ -573,7 +560,7 @@ static int jtag_vpi_init(void)
 		setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, (char *)&flag, sizeof(int));
 	}
 
-	LOG_INFO("Connection to %s : %u succeed", server_address, server_port);
+	LOG_INFO("jtag_vpi: Connection to %s : %u successful", server_address, server_port);
 
 	return ERROR_OK;
 }
@@ -605,38 +592,33 @@ static int jtag_vpi_quit(void)
 COMMAND_HANDLER(jtag_vpi_set_port)
 {
 	if (CMD_ARGC == 0)
-		LOG_WARNING("You need to set a port number");
-	else
-		COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], server_port);
+		return ERROR_COMMAND_SYNTAX_ERROR;
 
-	LOG_INFO("Set server port to %u", server_port);
+	COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], server_port);
+	LOG_INFO("jtag_vpi: server port set to %u", server_port);
 
 	return ERROR_OK;
 }
 
 COMMAND_HANDLER(jtag_vpi_set_address)
 {
+
+	if (CMD_ARGC == 0)
+		return ERROR_COMMAND_SYNTAX_ERROR;
+
 	free(server_address);
-
-	if (CMD_ARGC == 0) {
-		LOG_WARNING("You need to set an address");
-		server_address = strdup(SERVER_ADDRESS);
-	} else
-		server_address = strdup(CMD_ARGV[0]);
-
-	LOG_INFO("Set server address to %s", server_address);
+	server_address = strdup(CMD_ARGV[0]);
+	LOG_INFO("jtag_vpi: server address set to %s", server_address);
 
 	return ERROR_OK;
 }
 
 COMMAND_HANDLER(jtag_vpi_stop_sim_on_exit_handler)
 {
-	if (CMD_ARGC != 1) {
-		LOG_ERROR("jtag_vpi_stop_sim_on_exit expects 1 argument (on|off)");
+	if (CMD_ARGC != 1)
 		return ERROR_COMMAND_SYNTAX_ERROR;
-	} else {
-		COMMAND_PARSE_ON_OFF(CMD_ARGV[0], stop_sim_on_exit);
-	}
+
+	COMMAND_PARSE_ON_OFF(CMD_ARGV[0], stop_sim_on_exit);
 	return ERROR_OK;
 }
 
@@ -645,14 +627,14 @@ static const struct command_registration jtag_vpi_subcommand_handlers[] = {
 		.name = "set_port",
 		.handler = &jtag_vpi_set_port,
 		.mode = COMMAND_CONFIG,
-		.help = "set the port of the VPI server",
+		.help = "set the TCP port number of the jtag_vpi server (default: 5555)",
 		.usage = "tcp_port_num",
 	},
 	{
 		.name = "set_address",
 		.handler = &jtag_vpi_set_address,
 		.mode = COMMAND_CONFIG,
-		.help = "set the address of the VPI server",
+		.help = "set the IP address of the jtag_vpi server (default: 127.0.0.1)",
 		.usage = "ipv4_addr",
 	},
 	{

@@ -1,19 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 /***************************************************************************
  *   Copyright (C) 2016 by Maxim Integrated                                *
  *   Kevin Gillespie <kevin.gillespie@maximintegrated.com>                 *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -98,7 +87,7 @@ FLASH_BANK_COMMAND_HANDLER(max32xxx_flash_bank_command)
 		return ERROR_FLASH_BANK_INVALID;
 	}
 
-	info = calloc(sizeof(struct max32xxx_flash_bank), 1);
+	info = calloc(1, sizeof(struct max32xxx_flash_bank));
 	COMMAND_PARSE_NUMBER(uint, CMD_ARGV[2], info->flash_size);
 	COMMAND_PARSE_NUMBER(uint, CMD_ARGV[6], info->flc_base);
 	COMMAND_PARSE_NUMBER(uint, CMD_ARGV[7], info->sector_size);

@@ -1,18 +1,4 @@
-/***************************************************************************
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
- ***************************************************************************/
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -21,8 +7,8 @@
 #include <helper/time_support.h>
 #include <jtag/jtag.h>
 #include "target/target.h"
-#include "target/target_type.h"
 #include "target/register.h"
+#include <target/smp.h>
 #include "rtos.h"
 #include "helper/log.h"
 #include "helper/types.h"
@@ -45,11 +31,20 @@ static int hwthread_write_buffer(struct rtos *rtos, target_addr_t address,
 
 #define HW_THREAD_NAME_STR_SIZE (32)
 
-extern int rtos_thread_packet(struct connection *connection, const char *packet, int packet_size);
-
 static inline threadid_t threadid_from_target(const struct target *target)
 {
-	return target->coreid + 1;
+	if (!target->smp)
+		return 1;
+
+	threadid_t threadid = 1;
+	struct target_list *head;
+	foreach_smp_target(head, target->smp_targets) {
+		if (target == head->target)
+			return threadid;
+		++threadid;
+	}
+	assert(0 && "Target is not found in it's own SMP group!");
+	return -1;
 }
 
 const struct rtos_type hwthread_rtos = {
@@ -70,14 +65,13 @@ struct hwthread_params {
 	int dummy_param;
 };
 
-static int hwthread_fill_thread(struct rtos *rtos, struct target *curr, int thread_num)
+static int hwthread_fill_thread(struct rtos *rtos, struct target *curr, int thread_num, threadid_t tid)
 {
 	char tmp_str[HW_THREAD_NAME_STR_SIZE];
-	threadid_t tid = threadid_from_target(curr);
 
 	memset(tmp_str, 0, HW_THREAD_NAME_STR_SIZE);
 
-	/* thread-id is the core-id of this core inside the SMP group plus 1 */
+	/* thread-id is the index of this core inside the SMP group plus 1 */
 	rtos->thread_details[thread_num].threadid = tid;
 	/* create the thread name */
 	rtos->thread_details[thread_num].exists = true;
@@ -95,6 +89,7 @@ static int hwthread_update_threads(struct rtos *rtos)
 	struct target_list *head;
 	struct target *target;
 	int64_t current_thread = 0;
+	int64_t current_threadid = rtos->current_threadid; /* thread selected by GDB */
 	enum target_debug_reason current_reason = DBG_REASON_UNDEFINED;
 
 	if (!rtos)
@@ -107,7 +102,7 @@ static int hwthread_update_threads(struct rtos *rtos)
 
 	/* determine the number of "threads" */
 	if (target->smp) {
-		for (head = target->head; head; head = head->next) {
+		foreach_smp_target(head, target->smp_targets) {
 			struct target *curr = head->target;
 
 			if (!target_was_examined(curr))
@@ -118,20 +113,28 @@ static int hwthread_update_threads(struct rtos *rtos)
 	} else
 		thread_list_size = 1;
 
+	/* restore the threadid which is currently selected by GDB
+	 * because rtos_free_threadlist() wipes out it
+	 * (GDB thread id is 1-based indexing) */
+	if (current_threadid <= thread_list_size)
+		rtos->current_threadid = current_threadid;
+	else
+		LOG_WARNING("SMP node change, disconnect GDB from core/thread %" PRId64,
+			    current_threadid);
+
 	/* create space for new thread details */
 	rtos->thread_details = malloc(sizeof(struct thread_detail) * thread_list_size);
 
 	if (target->smp) {
 		/* loop over all threads */
-		for (head = target->head; head; head = head->next) {
+		foreach_smp_target(head, target->smp_targets) {
 			struct target *curr = head->target;
 
 			if (!target_was_examined(curr))
 				continue;
 
-			threadid_t tid = threadid_from_target(curr);
-
-			hwthread_fill_thread(rtos, curr, threads_found);
+			threadid_t tid = threads_found + 1;
+			hwthread_fill_thread(rtos, curr, threads_found, tid);
 
 			/* find an interesting thread to set as current */
 			switch (current_reason) {
@@ -188,8 +191,8 @@ static int hwthread_update_threads(struct rtos *rtos)
 			threads_found++;
 		}
 	} else {
-		hwthread_fill_thread(rtos, target, threads_found);
-		current_thread = threadid_from_target(target);
+		current_thread = 1;
+		hwthread_fill_thread(rtos, target, threads_found, current_thread);
 		threads_found++;
 	}
 
@@ -212,18 +215,17 @@ static int hwthread_smp_init(struct target *target)
 	return hwthread_update_threads(target->rtos);
 }
 
-static struct target *hwthread_find_thread(struct target *target, int64_t thread_id)
+static struct target *hwthread_find_thread(struct target *target, threadid_t thread_id)
 {
-	/* Find the thread with that thread_id */
-	if (!target)
-		return NULL;
-	if (target->smp) {
-		for (struct target_list *head = target->head; head; head = head->next) {
-			if (thread_id == threadid_from_target(head->target))
-				return head->target;
-		}
-	} else if (thread_id == threadid_from_target(target)) {
+	/* Find the thread with that thread_id (index in SMP group plus 1)*/
+	if (!(target && target->smp))
 		return target;
+	struct target_list *head;
+	threadid_t tid = 1;
+	foreach_smp_target(head, target->smp_targets) {
+		if (thread_id == tid)
+			return head->target;
+		++tid;
 	}
 	return NULL;
 }
@@ -267,12 +269,19 @@ static int hwthread_get_thread_reg_list(struct rtos *rtos, int64_t thread_id,
 	for (int i = 0; i < reg_list_size; i++) {
 		if (!reg_list[i] || reg_list[i]->exist == false || reg_list[i]->hidden)
 			continue;
-		if (!reg_list[i]->valid)
-			reg_list[i]->type->get(reg_list[i]);
-		(*rtos_reg_list)[j].number = (*reg_list)[i].number;
-		(*rtos_reg_list)[j].size = (*reg_list)[i].size;
-		memcpy((*rtos_reg_list)[j].value, (*reg_list)[i].value,
-		       ((*reg_list)[i].size + 7) / 8);
+		if (!reg_list[i]->valid) {
+			retval = reg_list[i]->type->get(reg_list[i]);
+			if (retval != ERROR_OK) {
+				LOG_ERROR("Couldn't get register %s.", reg_list[i]->name);
+				free(reg_list);
+				free(*rtos_reg_list);
+				return retval;
+			}
+		}
+		(*rtos_reg_list)[j].number = reg_list[i]->number;
+		(*rtos_reg_list)[j].size = reg_list[i]->size;
+		memcpy((*rtos_reg_list)[j].value, reg_list[i]->value,
+				DIV_ROUND_UP(reg_list[i]->size, 8));
 		j++;
 	}
 	free(reg_list);
@@ -295,7 +304,7 @@ static int hwthread_get_thread_reg(struct rtos *rtos, int64_t thread_id,
 	}
 
 	if (!target_was_examined(curr)) {
-		LOG_ERROR("Target %d hasn't been examined yet.", curr->coreid);
+		LOG_TARGET_ERROR(curr, "Target hasn't been examined yet.");
 		return ERROR_FAIL;
 	}
 
@@ -380,9 +389,9 @@ static int hwthread_thread_packet(struct connection *connection, const char *pac
 				return ERROR_FAIL;
 			}
 			target->rtos->current_thread = current_threadid;
-		} else
-		if (current_threadid == 0 || current_threadid == -1)
+		} else if (current_threadid == 0 || current_threadid == -1) {
 			target->rtos->current_thread = threadid_from_target(target);
+		}
 
 		target->rtos->current_threadid = current_threadid;
 

@@ -1,42 +1,32 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+
 /***************************************************************************
  *   Copyright (C) 2011 by Mathias Kuester                                 *
  *   Mathias Kuester <kesmtp@freenet.de>                                   *
  *                                                                         *
  *   Copyright (C) 2012 by Spencer Oliver                                  *
  *   spen@spen-soft.co.uk                                                  *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 #ifndef OPENOCD_JTAG_HLA_HLA_LAYOUT_H
 #define OPENOCD_JTAG_HLA_HLA_LAYOUT_H
 
 #include <target/armv7m_trace.h>
+#include <target/arm_tpiu_swo.h>
 
 /** */
-struct hl_interface_s;
-struct hl_interface_param_s;
+struct hl_interface;
+struct hl_interface_param;
 
 /** */
-extern struct hl_layout_api_s stlink_usb_layout_api;
-extern struct hl_layout_api_s icdi_usb_layout_api;
-extern struct hl_layout_api_s nulink_usb_layout_api;
+extern struct hl_layout_api stlink_usb_layout_api;
+extern struct hl_layout_api icdi_usb_layout_api;
+extern struct hl_layout_api nulink_usb_layout_api;
 
 /** */
-struct hl_layout_api_s {
+struct hl_layout_api {
 	/** */
-	int (*open)(struct hl_interface_param_s *param, void **handle);
+	int (*open)(struct hl_interface_param *param, void **handle);
 	/** */
 	int (*close)(void *handle);
 	/** */
@@ -131,16 +121,16 @@ struct hl_layout {
 	/** */
 	char *name;
 	/** */
-	int (*open)(struct hl_interface_s *adapter);
+	int (*open)(struct hl_interface *adapter);
 	/** */
-	int (*close)(struct hl_interface_s *adapter);
+	int (*close)(struct hl_interface *adapter);
 	/** */
-	struct hl_layout_api_s *api;
+	struct hl_layout_api *api;
 };
 
 /** */
 const struct hl_layout *hl_layout_get_list(void);
 /** */
-int hl_layout_init(struct hl_interface_s *adapter);
+int hl_layout_init(struct hl_interface *adapter);
 
 #endif /* OPENOCD_JTAG_HLA_HLA_LAYOUT_H */

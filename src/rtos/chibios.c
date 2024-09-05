@@ -1,22 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 /***************************************************************************
  *   Copyright (C) 2012 by Matthias Blaicher                               *
  *   Matthias Blaicher - matthias@blaicher.com                             *
  *                                                                         *
  *   Copyright (C) 2011 by Broadcom Corporation                            *
  *   Evan Hunter - ehunter@broadcom.com                                    *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -26,7 +15,6 @@
 #include <helper/time_support.h>
 #include <jtag/jtag.h>
 #include "target/target.h"
-#include "target/target_type.h"
 #include "target/armv7m.h"
 #include "target/cortex_m.h"
 #include "rtos.h"
@@ -91,12 +79,12 @@ struct chibios_params {
 static struct chibios_params chibios_params_list[] = {
 	{
 	"cortex_m",							/* target_name */
-	0,
+	NULL,
 	NULL,									/* stacking_info */
 	},
 	{
 	"hla_target",							/* target_name */
-	0,
+	NULL,
 	NULL,									/* stacking_info */
 	}
 };
@@ -108,7 +96,7 @@ static int chibios_get_thread_reg_list(struct rtos *rtos, int64_t thread_id,
 		struct rtos_reg **reg_list, int *num_regs);
 static int chibios_get_symbol_list_to_lookup(struct symbol_table_elem *symbol_list[]);
 
-struct rtos_type chibios_rtos = {
+const struct rtos_type chibios_rtos = {
 	.name = "chibios",
 
 	.detect_rtos = chibios_detect_rtos,
@@ -209,7 +197,7 @@ static int chibios_update_memory_signature(struct rtos *rtos)
 errfree:
 	/* Error reading the ChibiOS memory structure */
 	free(signature);
-	param->signature = 0;
+	param->signature = NULL;
 	return -1;
 }
 
@@ -479,9 +467,9 @@ static int chibios_get_thread_reg_list(struct rtos *rtos, int64_t thread_id,
 		return -1;
 
 	/* Update stacking if it can only be determined from runtime information */
-	if ((param->stacking_info == 0) &&
+	if (!param->stacking_info &&
 		(chibios_update_stacking(rtos) != ERROR_OK)) {
-		LOG_ERROR("Failed to determine exact stacking for the target type %s", rtos->target->type->name);
+		LOG_ERROR("Failed to determine exact stacking for the target type %s", target_type_name(rtos->target));
 		return -1;
 	}
 
@@ -529,12 +517,12 @@ static bool chibios_detect_rtos(struct target *target)
 static int chibios_create(struct target *target)
 {
 	for (unsigned int i = 0; i < ARRAY_SIZE(chibios_params_list); i++)
-		if (strcmp(chibios_params_list[i].target_name, target->type->name) == 0) {
+		if (strcmp(chibios_params_list[i].target_name, target_type_name(target)) == 0) {
 			target->rtos->rtos_specific_params = (void *)&chibios_params_list[i];
 			return 0;
 		}
 
 	LOG_WARNING("Could not find target \"%s\" in ChibiOS compatibility "
-				"list", target->type->name);
+				"list", target_type_name(target));
 	return -1;
 }

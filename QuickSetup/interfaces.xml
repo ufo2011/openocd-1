@@ -113,6 +113,11 @@
 				<PID>3753</PID>
 				<Interface>00</Interface>
 			</UsbIdentity>
+			<UsbIdentity>
+				<VID>0483</VID>
+				<PID>3754</PID>
+				<Interface>00</Interface>
+			</UsbIdentity>
 		</UsbIdentities>
 		<IsHLA>true</IsHLA>
 		<SerialNumberCommand>hla_serial</SerialNumberCommand>
@@ -370,6 +375,11 @@
 			<UsbIdentity>
 				<VID>04B4</VID>
 				<PID>F148</PID>
+				<Interface>00</Interface>
+			</UsbIdentity>
+			<UsbIdentity>
+				<VID>2E8A</VID>
+				<PID>000C</PID>
 				<Interface>00</Interface>
 			</UsbIdentity>
 		</UsbIdentities>

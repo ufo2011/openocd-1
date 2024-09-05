@@ -1,20 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 /***************************************************************************
  *                                                                         *
  *   Copyright (C) 2018 by Bohdan Tymkiv                                   *
  *   bohdan.tymkiv@cypress.com bohdan200@gmail.com                         *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -29,7 +18,6 @@
 #include "target/target.h"
 #include "target/cortex_m.h"
 #include "target/breakpoints.h"
-#include "target/target_type.h"
 #include "target/algorithm.h"
 
 /**************************************************************************************************
@@ -182,10 +170,8 @@ destroy_rp_free_wa:
 	/* Something went wrong, do some cleanup */
 	destroy_reg_param(&reg_params);
 
-	if (g_stack_area) {
-		target_free_working_area(target, g_stack_area);
-		g_stack_area = NULL;
-	}
+	target_free_working_area(target, g_stack_area);
+	g_stack_area = NULL;
 
 	return hr;
 }
@@ -237,6 +223,8 @@ static int ipc_poll_lock_stat(struct target *target, uint32_t ipc_id, bool lock_
 {
 	int hr;
 	uint32_t reg_val;
+	struct armv7m_common *armv7m = target_to_armv7m(target);
+	bool is_cm0 = (armv7m->arm.arch == ARM_ARCH_V6M);
 
 	struct timeout to;
 	timeout_init(&to, IPC_TIMEOUT_MS);
@@ -258,7 +246,7 @@ static int ipc_poll_lock_stat(struct target *target, uint32_t ipc_id, bool lock_
 			return ERROR_OK;
 	}
 
-	if (target->coreid) {
+	if (!is_cm0) {
 		LOG_WARNING("SROM API calls via CM4 target are supported on single-core PSoC6 devices only. "
 			"Please perform all Flash-related operations via CM0+ target on dual-core devices.");
 	}
@@ -604,8 +592,7 @@ static int psoc6_probe(struct flash_bank *bank)
 
 	unsigned int num_sectors = bank_size / row_sz;
 	bank->size = bank_size;
-	bank->chip_width = 4;
-	bank->bus_width = 4;
+
 	bank->erased_value = 0;
 	bank->default_padded_value = 0;
 
@@ -901,7 +888,8 @@ static int handle_reset_halt(struct target *target)
 {
 	int hr;
 	uint32_t reset_addr;
-	bool is_cm0 = (target->coreid == 0);
+	struct armv7m_common *armv7m = target_to_armv7m(target);
+	bool is_cm0 = (armv7m->arm.arch == ARM_ARCH_V6M);
 
 	/* Halt target device */
 	if (target->state != TARGET_HALTED) {

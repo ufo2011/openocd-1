@@ -1,5 +1,7 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 AC_PREREQ([2.69])
-AC_INIT([openocd], [0.11.0+dev],
+AC_INIT([openocd], [0.12.0+dev],
   [OpenOCD Mailing List <openocd-devel@lists.sourceforge.net>])
 AC_CONFIG_SRCDIR([src/openocd.c])
 AC_CONFIG_AUX_DIR([build-aux])
@@ -24,6 +26,12 @@ AC_PROG_CC
 m4_version_prereq([2.70],[],[AC_PROG_CC_C99])
 AM_PROG_CC_C_O
 AC_PROG_RANLIB
+
+# If macro PKG_PROG_PKG_CONFIG is not available, Autoconf generates a misleading error message,
+# so check for existence first, and otherwise provide helpful advice.
+m4_ifndef([PKG_PROG_PKG_CONFIG], [m4_fatal(m4_normalize([
+  Macro PKG_PROG_PKG_CONFIG is not available.
+  It is usually defined in file pkg.m4 provided by package pkg-config.]))])
 PKG_PROG_PKG_CONFIG([0.23])
 
 dnl disable checks for C++, Fortran and GNU Java Compiler
@@ -47,12 +55,10 @@ AC_CHECK_HEADERS([elf.h])
 AC_EGREP_HEADER(Elf64_Ehdr, [elf.h], [
   AC_DEFINE([HAVE_ELF64], [1], [Define to 1 if the system has the type `Elf64_Ehdr'.])
 ])
-AC_CHECK_HEADERS([dirent.h])
 AC_CHECK_HEADERS([fcntl.h])
 AC_CHECK_HEADERS([malloc.h])
 AC_CHECK_HEADERS([netdb.h])
 AC_CHECK_HEADERS([poll.h])
-AC_CHECK_HEADERS([pthread.h])
 AC_CHECK_HEADERS([strings.h])
 AC_CHECK_HEADERS([sys/ioctl.h])
 AC_CHECK_HEADERS([sys/param.h])
@@ -62,7 +68,7 @@ AC_CHECK_HEADERS([sys/sysctl.h])
 AC_CHECK_HEADERS([sys/time.h])
 AC_CHECK_HEADERS([sys/types.h])
 AC_CHECK_HEADERS([unistd.h])
-AC_CHECK_HEADERS([arpa/inet.h ifaddrs.h netinet/in.h netinet/tcp.h net/if.h], [], [], [dnl
+AC_CHECK_HEADERS([arpa/inet.h netinet/in.h netinet/tcp.h], [], [], [dnl
 #include <stdio.h>
 #ifdef STDC_HEADERS
 # include <stdlib.h>
@@ -86,7 +92,6 @@ AC_CHECK_FUNCS([strndup])
 AC_CHECK_FUNCS([strnlen])
 AC_CHECK_FUNCS([gettimeofday])
 AC_CHECK_FUNCS([usleep])
-AC_CHECK_FUNCS([vasprintf])
 AC_CHECK_FUNCS([realpath])
 
 # guess-rev.sh only exists in the repository, not in the released archives
@@ -114,6 +119,7 @@ m4_define([USB1_ADAPTERS],
 	[[stlink], [ST-Link Programmer], [HLADAPTER_STLINK]],
 	[[ti_icdi], [TI ICDI JTAG Programmer], [HLADAPTER_ICDI]],
 	[[ulink], [Keil ULINK JTAG Programmer], [ULINK]],
+	[[angie], [ANGIE Adapter], [ANGIE]],
 	[[usb_blaster_2], [Altera USB-Blaster II Compatible], [USB_BLASTER_2]],
 	[[ft232r], [Bitbang mode of FT232R based devices], [FT232R]],
 	[[vsllink], [Versaloon-Link JTAG Programmer], [VSLLINK]],
@@ -124,7 +130,7 @@ m4_define([USB1_ADAPTERS],
 	[[armjtagew], [Olimex ARM-JTAG-EW Programmer], [ARMJTAGEW]],
 	[[rlink], [Raisonance RLink JTAG Programmer], [RLINK]],
 	[[usbprog], [USBProg JTAG Programmer], [USBPROG]],
-	[[aice], [Andes JTAG Programmer], [AICE]]])
+	[[esp_usb_jtag], [Espressif JTAG Programmer], [ESP_USB_JTAG]]])
 
 m4_define([HIDAPI_ADAPTERS],
 	[[[cmsis_dap], [CMSIS-DAP Compliant Debugger], [CMSIS_DAP_HID]],
@@ -151,6 +157,11 @@ m4_define([PCIE_ADAPTERS],
 
 m4_define([SERIAL_PORT_ADAPTERS],
 	[[[buspirate], [Bus Pirate], [BUS_PIRATE]]])
+
+# The word 'Adapter' in "Dummy Adapter" below must begin with a capital letter
+# because there is an M4 macro called 'adapter'.
+m4_define([DUMMY_ADAPTER],
+	[[[dummy], [Dummy Adapter], [DUMMY]]])
 
 m4_define([OPTIONAL_LIBRARIES],
 	[[[capstone], [Use Capstone disassembly framework], []]])
@@ -229,13 +240,13 @@ AS_IF([test "x$debug_malloc" = "xyes"], [
   AC_DEFINE([_DEBUG_FREE_SPACE_],[1], [Include malloc free space in logging])
 ])
 
-AC_ARG_ENABLE([dummy],
-  AS_HELP_STRING([--enable-dummy], [Enable building the dummy port driver]),
-  [build_dummy=$enableval], [build_dummy=no])
-
 AC_ARG_ENABLE([rshim],
   AS_HELP_STRING([--enable-rshim], [Enable building the rshim driver]),
   [build_rshim=$enableval], [build_rshim=no])
+
+AC_ARG_ENABLE([dmem],
+  AS_HELP_STRING([--enable-dmem], [Enable building the dmem driver]),
+  [build_dmem=$enableval], [build_dmem=no])
 
 m4_define([AC_ARG_ADAPTERS], [
   m4_foreach([adapter], [$1],
@@ -257,6 +268,8 @@ AC_ARG_ADAPTERS([
   LIBJAYLINK_ADAPTERS
   ],[auto])
 
+AC_ARG_ADAPTERS([DUMMY_ADAPTER],[no])
+
 AC_ARG_ENABLE([parport],
   AS_HELP_STRING([--enable-parport], [Enable building the pc parallel port driver]),
   [build_parport=$enableval], [build_parport=no])
@@ -275,6 +288,10 @@ AC_ARG_ENABLE([jtag_vpi],
   AS_HELP_STRING([--enable-jtag_vpi], [Enable building support for JTAG VPI]),
   [build_jtag_vpi=$enableval], [build_jtag_vpi=no])
 
+AC_ARG_ENABLE([vdebug],
+  AS_HELP_STRING([--enable-vdebug], [Enable building support for Cadence Virtual Debug Interface]),
+  [build_vdebug=$enableval], [build_vdebug=no])
+
 AC_ARG_ENABLE([jtag_dpi],
   AS_HELP_STRING([--enable-jtag_dpi], [Enable building support for JTAG DPI]),
   [build_jtag_dpi=$enableval], [build_jtag_dpi=no])
@@ -291,10 +308,14 @@ AS_CASE(["${host_cpu}"],
     AC_ARG_ENABLE([imx_gpio],
       AS_HELP_STRING([--enable-imx_gpio], [Enable building support for bitbanging on NXP IMX processors]),
       [build_imx_gpio=$enableval], [build_imx_gpio=no])
+    AC_ARG_ENABLE([am335xgpio],
+      AS_HELP_STRING([--enable-am335xgpio], [Enable building support for bitbanging on AM335x (as found in Beaglebones)]),
+      [build_am335xgpio=$enableval], [build_am335xgpio=no])
   ],
   [
     build_bcm2835gpio=no
     build_imx_gpio=no
+    build_am335xgpio=no
 ])
 
 AS_CASE(["${host_cpu}"],
@@ -345,19 +366,27 @@ AS_CASE([$host_os],
         AC_MSG_ERROR([build_rshim is only available on linux or freebsd])
       ])
     ])
+
+    AS_IF([test "x$build_dmem" = "xyes"], [
+      AC_MSG_ERROR([dmem is only available on linux])
+    ])
 ])
 
 AC_ARG_ENABLE([internal-jimtcl],
   AS_HELP_STRING([--disable-internal-jimtcl], [Disable building internal jimtcl]),
   [use_internal_jimtcl=$enableval], [use_internal_jimtcl=yes])
 
+AC_ARG_ENABLE([jimtcl-maintainer],
+  AS_HELP_STRING([--enable-jimtcl-maintainer], [Enable maintainer mode when building internal jimtcl]),
+  [use_internal_jimtcl_maintainer=$enableval], [use_internal_jimtcl_maintainer=no])
+
 AC_ARG_ENABLE([internal-libjaylink],
-  AS_HELP_STRING([--disable-internal-libjaylink],
-  [Disable building internal libjaylink]),
-  [use_internal_libjaylink=$enableval], [use_internal_libjaylink=yes])
+  AS_HELP_STRING([--enable-internal-libjaylink],
+  [Enable building internal libjaylink]),
+  [use_internal_libjaylink=$enableval], [use_internal_libjaylink=no])
 
 AC_ARG_ENABLE([remote-bitbang],
-  AS_HELP_STRING([--enable-remote-bitbang], [Enable building support for the Remote Bitbang jtag driver]),
+  AS_HELP_STRING([--enable-remote-bitbang], [Enable building support for the Remote Bitbang driver]),
   [build_remote_bitbang=$enableval], [build_remote_bitbang=no])
 
 AS_CASE(["${host_cpu}"],
@@ -461,11 +490,14 @@ AS_IF([test "x$build_rshim" = "xyes"], [
   AC_DEFINE([BUILD_RSHIM], [0], [0 if you don't want to debug BlueField SoC via rshim.])
 ])
 
-AS_IF([test "x$build_dummy" = "xyes"], [
-  build_bitbang=yes
-  AC_DEFINE([BUILD_DUMMY], [1], [1 if you want dummy driver.])
+AS_IF([test "x$build_dmem" = "xyes"], [
+  AC_DEFINE([BUILD_DMEM], [1], [1 if you want to debug via Direct Mem.])
 ], [
-  AC_DEFINE([BUILD_DUMMY], [0], [0 if you don't want dummy driver.])
+  AC_DEFINE([BUILD_DMEM], [0], [0 if you don't want to debug via Direct Mem.])
+])
+
+AS_IF([test "x$ADAPTER_VAR([dummy])" = "xyes"], [
+  build_bitbang=yes
 ])
 
 AS_IF([test "x$build_ep93xx" = "xyes"], [
@@ -496,6 +528,13 @@ AS_IF([test "x$build_imx_gpio" = "xyes"], [
   AC_DEFINE([BUILD_IMX_GPIO], [0], [0 if you don't want imx_gpio.])
 ])
 
+AS_IF([test "x$build_am335xgpio" = "xyes"], [
+  build_bitbang=yes
+  AC_DEFINE([BUILD_AM335XGPIO], [1], [1 if you want am335xgpio.])
+], [
+  AC_DEFINE([BUILD_AM335XGPIO], [0], [0 if you don't want am335xgpio.])
+])
+
 AS_IF([test "x$parport_use_ppdev" = "xyes"], [
   AC_DEFINE([PARPORT_USE_PPDEV], [1], [1 if you want parport to use ppdev.])
 ], [
@@ -512,6 +551,12 @@ AS_IF([test "x$build_jtag_vpi" = "xyes"], [
   AC_DEFINE([BUILD_JTAG_VPI], [1], [1 if you want JTAG VPI.])
 ], [
   AC_DEFINE([BUILD_JTAG_VPI], [0], [0 if you don't want JTAG VPI.])
+])
+
+AS_IF([test "x$build_vdebug" = "xyes"], [
+  AC_DEFINE([BUILD_VDEBUG], [1], [1 if you want Cadence vdebug interface.])
+], [
+  AC_DEFINE([BUILD_VDEBUG], [0], [0 if you don't want Cadence vdebug interface.])
 ])
 
 AS_IF([test "x$build_jtag_dpi" = "xyes"], [
@@ -540,18 +585,32 @@ AS_IF([test "x$enable_buspirate" != "xno"], [
 ])
 
 AS_IF([test "x$use_internal_jimtcl" = "xyes"], [
-  AS_IF([test -f "$srcdir/jimtcl/configure.ac"], [
-    AX_CONFIG_SUBDIR_OPTION([jimtcl], [--disable-install-jim])
+  AS_IF([test -f "$srcdir/jimtcl/configure"], [
+    AS_IF([test "x$use_internal_jimtcl_maintainer" = "xyes"], [
+      jimtcl_config_options="--disable-install-jim --with-ext=json --minimal --disable-ssl --maintainer"
+    ], [
+      jimtcl_config_options="--disable-install-jim --with-ext=json --minimal --disable-ssl"
+    ])
+    AX_CONFIG_SUBDIR_OPTION([jimtcl], [$jimtcl_config_options])
   ], [
     AC_MSG_ERROR([jimtcl not found, run git submodule init and git submodule update.])
+  ])
+], [
+  PKG_CHECK_MODULES([JIMTCL], [jimtcl >= 0.79], [
+      have_jimtcl_pkg_config=yes
+    ], [
+      have_jimtcl_pkg_config=no
+      AC_CHECK_HEADER([jim.h], [], [
+        AC_MSG_ERROR([jimtcl is required but not found via pkg-config and system includes])
+      ])
   ])
 ])
 
 AS_IF([test "x$build_remote_bitbang" = "xyes"], [
   build_bitbang=yes
-  AC_DEFINE([BUILD_REMOTE_BITBANG], [1], [1 if you want the Remote Bitbang JTAG driver.])
+  AC_DEFINE([BUILD_REMOTE_BITBANG], [1], [1 if you want the Remote Bitbang driver.])
 ], [
-  AC_DEFINE([BUILD_REMOTE_BITBANG], [0], [0 if you don't want the Remote Bitbang JTAG driver.])
+  AC_DEFINE([BUILD_REMOTE_BITBANG], [0], [0 if you don't want the Remote Bitbang driver.])
 ])
 
 AS_IF([test "x$build_sysfsgpio" = "xyes"], [
@@ -592,12 +651,15 @@ AS_IF([test "x$enable_capstone" != xno], [
 	PKG_CHECK_MODULES([CAPSTONE], [capstone], [
 		AC_DEFINE([HAVE_CAPSTONE], [1], [1 if you have Capstone disassembly framework.])
 	], [
-		AC_DEFINE([HAVE_CAPSTONE], [0], [0 if you don't have Capstone disassembly framework.])
 		if test "x$enable_capstone" != xauto; then
 			AC_MSG_ERROR([--with-capstone was given, but test for Capstone failed])
 		fi
 		enable_capstone=no
 	])
+])
+
+AS_IF([test "x$enable_capstone" == xno], [
+	AC_DEFINE([HAVE_CAPSTONE], [0], [0 if you don't have Capstone disassembly framework.])
 ])
 
 for hidapi_lib in hidapi hidapi-hidraw hidapi-libusb; do
@@ -617,11 +679,20 @@ PKG_CHECK_MODULES([LIBFTDI], [libftdi1], [
 	PKG_CHECK_MODULES([LIBFTDI], [libftdi], [use_libftdi=yes], [use_libftdi=no])
 ])
 
-PKG_CHECK_MODULES([LIBGPIOD], [libgpiod], [use_libgpiod=yes], [use_libgpiod=no])
+PKG_CHECK_MODULES([LIBGPIOD], [libgpiod < 2.0], [
+	use_libgpiod=yes
+	PKG_CHECK_EXISTS([libgpiod >= 1.5],
+		[AC_DEFINE([HAVE_LIBGPIOD1_FLAGS_BIAS], [1], [define if libgpiod v1 has line request flags bias])])
+], [use_libgpiod=no])
 
 PKG_CHECK_MODULES([LIBJAYLINK], [libjaylink >= 0.2],
 	[use_libjaylink=yes], [use_libjaylink=no])
 
+# Arg $1: The adapter name, used to derive option and variable names for the adapter.
+# Arg $2: Whether the adapter can be enabled, for example, because
+#         its prerequisites are installed in the system.
+# Arg $3: What prerequisites are missing, to be shown in an error message
+#         if the adapter was requested but cannot be enabled.
 m4_define([PROCESS_ADAPTERS], [
   m4_foreach([adapter], [$1], [
 	AS_IF([test $2], [
@@ -648,6 +719,7 @@ PROCESS_ADAPTERS([LIBFTDI_ADAPTERS], ["x$use_libftdi" = "xyes"], [libftdi])
 PROCESS_ADAPTERS([LIBFTDI_USB1_ADAPTERS], ["x$use_libftdi" = "xyes" -a "x$use_libusb1" = "xyes"], [libftdi and libusb-1.x])
 PROCESS_ADAPTERS([LIBGPIOD_ADAPTERS], ["x$use_libgpiod" = "xyes"], [libgpiod])
 PROCESS_ADAPTERS([LIBJAYLINK_ADAPTERS], ["x$use_internal_libjaylink" = "xyes" -o "x$use_libjaylink" = "xyes"], [libjaylink-0.2])
+PROCESS_ADAPTERS([DUMMY_ADAPTER], [true], [unused])
 
 AS_IF([test "x$enable_linuxgpiod" != "xno"], [
   build_bitbang=yes
@@ -670,7 +742,7 @@ AS_IF([test "x$enable_jlink" != "xno"], [
       AX_CONFIG_SUBDIR_OPTION([src/jtag/drivers/libjaylink],
 		[--enable-subproject-build])
     ], [
-      AC_MSG_ERROR([Internal libjaylink not found, run either 'git submodule init' and 'git submodule update' or disable internal libjaylink with --disable-internal-libjaylink.])
+      AC_MSG_ERROR([Internal libjaylink not found, run 'git submodule init' and 'git submodule update'.])
     ])
   ])
 ])
@@ -680,17 +752,23 @@ AS_IF([test "x$enable_presto" != "xno"], [
   build_bitq=yes
 ])
 
+# esp-usb-jtag also needs the bitq module
+AS_IF([test "x$enable_esp_usb_jtag" != "xno"], [
+  build_bitq=yes
+])
+
 AM_CONDITIONAL([RELEASE], [test "x$build_release" = "xyes"])
 AM_CONDITIONAL([PARPORT], [test "x$build_parport" = "xyes"])
-AM_CONDITIONAL([DUMMY], [test "x$build_dummy" = "xyes"])
 AM_CONDITIONAL([GIVEIO], [test "x$parport_use_giveio" = "xyes"])
 AM_CONDITIONAL([EP93XX], [test "x$build_ep93xx" = "xyes"])
 AM_CONDITIONAL([AT91RM9200], [test "x$build_at91rm9200" = "xyes"])
 AM_CONDITIONAL([BCM2835GPIO], [test "x$build_bcm2835gpio" = "xyes"])
 AM_CONDITIONAL([IMX_GPIO], [test "x$build_imx_gpio" = "xyes"])
+AM_CONDITIONAL([AM335XGPIO], [test "x$build_am335xgpio" = "xyes"])
 AM_CONDITIONAL([BITBANG], [test "x$build_bitbang" = "xyes"])
-AM_CONDITIONAL([JTAG_VPI], [test "x$build_jtag_vpi" = "xyes" -o "x$build_jtag_vpi" = "xyes"])
-AM_CONDITIONAL([JTAG_DPI], [test "x$build_jtag_dpi" = "xyes" -o "x$build_jtag_dpi" = "xyes"])
+AM_CONDITIONAL([JTAG_VPI], [test "x$build_jtag_vpi" = "xyes"])
+AM_CONDITIONAL([VDEBUG], [test "x$build_vdebug" = "xyes"])
+AM_CONDITIONAL([JTAG_DPI], [test "x$build_jtag_dpi" = "xyes"])
 AM_CONDITIONAL([USB_BLASTER_DRIVER], [test "x$enable_usb_blaster" != "xno" -o "x$enable_usb_blaster_2" != "xno"])
 AM_CONDITIONAL([AMTJTAGACCEL], [test "x$build_amtjtagaccel" = "xyes"])
 AM_CONDITIONAL([GW16012], [test "x$build_gw16012" = "xyes"])
@@ -709,9 +787,11 @@ AM_CONDITIONAL([USE_LIBGPIOD], [test "x$use_libgpiod" = "xyes"])
 AM_CONDITIONAL([USE_HIDAPI], [test "x$use_hidapi" = "xyes"])
 AM_CONDITIONAL([USE_LIBJAYLINK], [test "x$use_libjaylink" = "xyes"])
 AM_CONDITIONAL([RSHIM], [test "x$build_rshim" = "xyes"])
+AM_CONDITIONAL([DMEM], [test "x$build_dmem" = "xyes"])
 AM_CONDITIONAL([HAVE_CAPSTONE], [test "x$enable_capstone" != "xno"])
 
 AM_CONDITIONAL([INTERNAL_JIMTCL], [test "x$use_internal_jimtcl" = "xyes"])
+AM_CONDITIONAL([HAVE_JIMTCL_PKG_CONFIG], [test "x$have_jimtcl_pkg_config" = "xyes"])
 AM_CONDITIONAL([INTERNAL_LIBJAYLINK], [test "x$use_internal_libjaylink" = "xyes"])
 
 # Look for environ alternatives.  Possibility #1: is environ in unistd.h or stdlib.h?
@@ -756,7 +836,6 @@ AS_IF([test "x${gcc_wextra}" = "xyes"], [
   GCC_WARNINGS="${GCC_WARNINGS} -Wredundant-decls"
   GCC_WARNINGS="${GCC_WARNINGS} -Wpointer-arith"
   GCC_WARNINGS="${GCC_WARNINGS} -Wundef"
-  GCC_WARNINGS="${GCC_WARNINGS} -Wno-error=deprecated-declarations"
 ])
 AS_IF([test "x${gcc_werror}" = "xyes"], [
   GCC_WARNINGS="${GCC_WARNINGS} -Werror"
@@ -774,6 +853,12 @@ AC_CONFIG_FILES([
 ])
 AC_OUTPUT
 
+AS_IF([test "x$enable_jlink" != "xno"], [
+  AS_IF([test "x$use_internal_libjaylink" = "xyes"], [
+    AC_MSG_WARN([Using the internal libjaylink is deprecated and will not be possible in the future.])
+  ]])
+)
+
 echo
 echo
 echo OpenOCD configuration summary
@@ -783,6 +868,7 @@ m4_foreach([adapter], [USB1_ADAPTERS,
 	LIBFTDI_USB1_ADAPTERS,
 	LIBGPIOD_ADAPTERS,
 	LIBJAYLINK_ADAPTERS, PCIE_ADAPTERS, SERIAL_PORT_ADAPTERS,
+	DUMMY_ADAPTER,
 	OPTIONAL_LIBRARIES],
 	[s=m4_format(["%-40s"], ADAPTER_DESC([adapter]))
 	AS_CASE([$ADAPTER_VAR([adapter])],

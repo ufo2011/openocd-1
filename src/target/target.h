@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+
 /***************************************************************************
  *   Copyright (C) 2005 by Dominic Rath                                    *
  *   Dominic.Rath@gmx.de                                                   *
@@ -13,19 +15,6 @@
  *                                                                         *
  *   Copyright (C) ST-Ericsson SA 2011                                     *
  *   michel.jaouen@stericsson.com : smp minimum support                    *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 #ifndef OPENOCD_TARGET_TARGET_H
@@ -34,6 +23,7 @@
 #include <helper/list.h>
 #include "helper/replacements.h"
 #include "helper/system.h"
+#include <helper/types.h>
 #include <jim.h>
 
 struct reg;
@@ -66,11 +56,6 @@ enum target_state {
 	TARGET_HALTED = 2,
 	TARGET_RESET = 3,
 	TARGET_DEBUG_RUNNING = 4,
-};
-
-enum nvp_assert {
-	NVP_DEASSERT,
-	NVP_ASSERT,
 };
 
 enum target_reset_mode {
@@ -131,7 +116,6 @@ enum target_register_class {
 struct target {
 	struct target_type *type;			/* target type definition (name, access functions) */
 	char *cmd_name;				/* tcl Name of target */
-	int target_number;					/* DO NOT USE!  field to be removed in 2010 */
 	struct jtag_tap *tap;				/* where on the jtag chain is this */
 	int32_t coreid;						/* which device on the TAP? */
 
@@ -165,7 +149,7 @@ struct target {
 	bool working_area_phys_spec;		/* physical address specified? */
 	target_addr_t working_area_phys;			/* physical address */
 	uint32_t working_area_size;			/* size in bytes */
-	uint32_t backup_working_area;		/* whether the content of the working area has to be preserved */
+	bool backup_working_area;			/* whether the content of the working area has to be preserved */
 	struct working_area *working_areas;/* list of allocated working areas */
 	enum target_debug_reason debug_reason;/* reason why the target entered debug state */
 	enum target_endianness endianness;	/* target endianness */
@@ -176,7 +160,7 @@ struct target {
 	struct watchpoint *watchpoints;		/* list of watchpoints */
 	struct trace *trace_info;			/* generic trace information */
 	struct debug_msg_receiver *dbgmsg;	/* list of debug message receivers */
-	uint32_t dbg_msg_enabled;			/* debug message status */
+	bool dbg_msg_enabled;				/* debug message status */
 	void *arch_info;					/* architecture specific information */
 	void *private_config;				/* pointer to target specific config data (for jim_configure hook) */
 	struct target *next;				/* next target in list */
@@ -200,10 +184,16 @@ struct target {
 	bool rtos_auto_detect;				/* A flag that indicates that the RTOS has been specified as "auto"
 										 * and must be detected when symbols are offered */
 	struct backoff_timer backoff;
-	int smp, amp;							/* add some target attributes for smp support */
+	int smp;							/* Unique non-zero number for each SMP group */
     int frozen;                         /* frozen targets won't be auto-resumed when receiving a 'step' or 'continue' command from gdb*/
     int report_flash_progress;          /* If set to 1, FLASH writing operations will generate detailed progress messages */
-	struct target_list *head;
+	struct list_head *smp_targets;		/* list all targets in this smp group/cluster
+										 * The head of the list is shared between the
+										 * cluster, thus here there is a pointer */
+	bool smp_halt_event_postponed;		/* Some SMP implementations (currently Cortex-M) stores
+										 * 'halted' events and emits them after all targets of
+										 * the SMP group has been polled */
+
 	/* the gdb service is there in case of smp, we have only one gdb server
 	 * for all smp target
 	 * the target attached to the gdb is changing dynamically by changing
@@ -226,8 +216,8 @@ struct target {
 };
 
 struct target_list {
+	struct list_head lh;
 	struct target *target;
-	struct target_list *next;
 };
 
 struct gdb_fileio_info {
@@ -239,19 +229,19 @@ struct gdb_fileio_info {
 };
 
 /** Returns a description of the endianness for the specified target. */
-static inline const char *target_endianness(struct target *target)
+static inline const char *target_endianness(const struct target *target)
 {
 	return (target->endianness == TARGET_ENDIAN_UNKNOWN) ? "unknown" :
 			(target->endianness == TARGET_BIG_ENDIAN) ? "big endian" : "little endian";
 }
 
 /** Returns the instance-specific name of the specified target. */
-static inline const char *target_name(struct target *target)
+static inline const char *target_name(const struct target *target)
 {
 	return target->cmd_name;
 }
 
-const char *debug_reason_name(struct target *t);
+const char *debug_reason_name(const struct target *t);
 
 enum target_event {
 
@@ -300,6 +290,15 @@ enum target_event {
 	TARGET_EVENT_GDB_FLASH_WRITE_END,
 
 	TARGET_EVENT_TRACE_CONFIG,
+
+	TARGET_EVENT_SEMIHOSTING_USER_CMD_0X100 = 0x100, /* semihosting allows user cmds from 0x100 to 0x1ff */
+	TARGET_EVENT_SEMIHOSTING_USER_CMD_0X101 = 0x101,
+	TARGET_EVENT_SEMIHOSTING_USER_CMD_0X102 = 0x102,
+	TARGET_EVENT_SEMIHOSTING_USER_CMD_0X103 = 0x103,
+	TARGET_EVENT_SEMIHOSTING_USER_CMD_0X104 = 0x104,
+	TARGET_EVENT_SEMIHOSTING_USER_CMD_0X105 = 0x105,
+	TARGET_EVENT_SEMIHOSTING_USER_CMD_0X106 = 0x106,
+	TARGET_EVENT_SEMIHOSTING_USER_CMD_0X107 = 0x107,
 };
 
 struct target_event_action {
@@ -309,7 +308,7 @@ struct target_event_action {
 	struct target_event_action *next;
 };
 
-bool target_has_event_action(struct target *target, enum target_event event);
+bool target_has_event_action(const struct target *target, enum target_event event);
 
 struct target_event_callback {
 	int (*callback)(struct target *target, enum target_event event, void *priv);
@@ -419,7 +418,6 @@ int target_call_timer_callbacks_now(void);
  */
 int64_t target_timer_next_event(void);
 
-struct target *get_target_by_num(int num);
 struct target *get_current_target(struct command_context *cmd_ctx);
 struct target *get_current_target_or_null(struct command_context *cmd_ctx);
 struct target *get_target(const char *id);
@@ -430,7 +428,7 @@ struct target *get_target(const char *id);
  * This routine is a wrapper for the target->type->name field.
  * Note that this is not an instance-specific name for his target.
  */
-const char *target_type_name(struct target *target);
+const char *target_type_name(const struct target *target);
 
 /**
  * Examine the specified @a target, letting it perform any
@@ -441,7 +439,7 @@ const char *target_type_name(struct target *target);
 int target_examine_one(struct target *target);
 
 /** @returns @c true if target_set_examined() has been called. */
-static inline bool target_was_examined(struct target *target)
+static inline bool target_was_examined(const struct target *target)
 {
 	return target->examined;
 }
@@ -510,7 +508,7 @@ int target_hit_watchpoint(struct target *target,
  *
  * This routine is a wrapper for target->type->get_gdb_arch.
  */
-const char *target_get_gdb_arch(struct target *target);
+const char *target_get_gdb_arch(const struct target *target);
 
 /**
  * Obtain the registers for GDB.
@@ -536,7 +534,7 @@ int target_get_gdb_reg_list_noread(struct target *target,
  *
  * Some target do not implement the necessary code required by GDB.
  */
-bool target_supports_gdb_connection(struct target *target);
+bool target_supports_gdb_connection(const struct target *target);
 
 /**
  * Step the target.
@@ -553,8 +551,8 @@ int target_step(struct target *target,
 int target_run_algorithm(struct target *target,
 		int num_mem_params, struct mem_param *mem_params,
 		int num_reg_params, struct reg_param *reg_param,
-		uint32_t entry_point, uint32_t exit_point,
-		int timeout_ms, void *arch_info);
+		target_addr_t entry_point, target_addr_t exit_point,
+		unsigned int timeout_ms, void *arch_info);
 
 /**
  * Starts an algorithm in the background on the @a target given.
@@ -564,7 +562,7 @@ int target_run_algorithm(struct target *target,
 int target_start_algorithm(struct target *target,
 		int num_mem_params, struct mem_param *mem_params,
 		int num_reg_params, struct reg_param *reg_params,
-		uint32_t entry_point, uint32_t exit_point,
+		target_addr_t entry_point, target_addr_t exit_point,
 		void *arch_info);
 
 /**
@@ -575,7 +573,7 @@ int target_start_algorithm(struct target *target,
 int target_wait_algorithm(struct target *target,
 		int num_mem_params, struct mem_param *mem_params,
 		int num_reg_params, struct reg_param *reg_params,
-		uint32_t exit_point, int timeout_ms,
+		target_addr_t exit_point, unsigned int timeout_ms,
 		void *arch_info);
 
 /**
@@ -667,7 +665,7 @@ int target_checksum_memory(struct target *target,
 int target_blank_check_memory(struct target *target,
 		struct target_memory_check_block *blocks, int num_blocks,
 		uint8_t erased_value);
-int target_wait_state(struct target *target, enum target_state state, int ms);
+int target_wait_state(struct target *target, enum target_state state, unsigned int ms);
 
 /**
  * Obtain file-I/O information from target for GDB to do syscall.
@@ -703,7 +701,7 @@ unsigned target_address_bits(struct target *target);
 unsigned int target_data_bits(struct target *target);
 
 /** Return the *name* of this targets current state */
-const char *target_state_name(struct target *target);
+const char *target_state_name(const struct target *target);
 
 /** Return the *name* of a target event enumeration value */
 const char *target_event_name(enum target_event event);
@@ -732,6 +730,13 @@ int target_alloc_working_area(struct target *target,
  */
 int target_alloc_working_area_try(struct target *target,
 		uint32_t size, struct working_area **area);
+/**
+ * Free a working area.
+ * Restore target data if area backup is configured.
+ * @param target
+ * @param area Pointer to the area to be freed or NULL
+ * @returns ERROR_OK if successful; error code if restore failed
+ */
 int target_free_working_area(struct target *target, struct working_area *area);
 void target_free_all_working_areas(struct target *target);
 uint32_t target_get_working_area_avail(struct target *target);
@@ -798,9 +803,14 @@ int target_profiling_default(struct target *target, uint32_t *samples, uint32_t
 #define ERROR_TARGET_NOT_EXAMINED (-311)
 #define ERROR_TARGET_DUPLICATE_BREAKPOINT (-312)
 #define ERROR_TARGET_ALGO_EXIT  (-313)
+#define ERROR_TARGET_SIZE_NOT_SUPPORTED  (-314)
+#define ERROR_TARGET_PACKING_NOT_SUPPORTED  (-315)
+#define ERROR_TARGET_HALTED_DO_RESUME  (-316)	/* used to workaround incorrect debug halt */
 
 extern bool get_target_reset_nag(void);
 
 #define TARGET_DEFAULT_POLLING_INTERVAL		100
+
+const char *target_debug_reason_str(enum target_debug_reason reason);
 
 #endif /* OPENOCD_TARGET_TARGET_H */

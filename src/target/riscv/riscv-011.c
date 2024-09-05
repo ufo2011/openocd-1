@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /*
  * Support for RISC-V, debug version 0.11. This was never an officially adopted
@@ -227,10 +227,10 @@ static int get_register(struct target *target, riscv_reg_t *value, int regid);
 
 static riscv011_info_t *get_info(const struct target *target)
 {
-	riscv_info_t *info = (riscv_info_t *) target->arch_info;
+	struct riscv_info *info = target->arch_info;
 	assert(info);
 	assert(info->version_specific);
-	return (riscv011_info_t *) info->version_specific;
+	return info->version_specific;
 }
 
 static unsigned int slot_offset(const struct target *target, slot_t slot)
@@ -412,7 +412,7 @@ static void dump_field(const struct scan_field *field)
 
 	log_printf_lf(LOG_LVL_DEBUG,
 			__FILE__, __LINE__, "scan",
-			"%db %s %c%c:%08x @%02x -> %s %c%c:%08x @%02x",
+			"%ub %s %c%c:%08x @%02x -> %s %c%c:%08x @%02x",
 			field->num_bits,
 			op_string[out_op], out_interrupt, out_haltnot, out_data,
 			out_address,
@@ -1408,7 +1408,10 @@ static int halt(struct target *target)
 static void deinit_target(struct target *target)
 {
 	LOG_DEBUG("riscv_deinit_target()");
-	riscv_info_t *info = (riscv_info_t *) target->arch_info;
+	struct riscv_info *info = target->arch_info;
+	if (!info)
+		return;
+
 	free(info->version_specific);
 	info->version_specific = NULL;
 }
@@ -1549,7 +1552,7 @@ static int examine(struct target *target)
 
 	uint32_t word0 = cache_get32(target, 0);
 	uint32_t word1 = cache_get32(target, 1);
-	riscv_info_t *generic_info = (riscv_info_t *) target->arch_info;
+	struct riscv_info *generic_info = riscv_info(target);
 	if (word0 == 1 && word1 == 0) {
 		generic_info->xlen = 32;
 	} else if (word0 == 0xffffffff && word1 == 3) {
@@ -2294,7 +2297,7 @@ static int arch_state(struct target *target)
 	return ERROR_OK;
 }
 
-COMMAND_HELPER(riscv011_print_info, struct target *target)
+static COMMAND_HELPER(riscv011_print_info, struct target *target)
 {
 	/* Abstract description. */
 	riscv_print_info_line(CMD, "target", "memory.read_while_running8", 0);

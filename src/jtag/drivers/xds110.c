@@ -1,18 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 /***************************************************************************
  *   Copyright (C) 2017 by Texas Instruments, Inc.                         *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -20,14 +9,12 @@
 #endif
 
 #include <transport/transport.h>
+#include <jtag/adapter.h>
 #include <jtag/swd.h>
 #include <jtag/interface.h>
 #include <jtag/commands.h>
 #include <jtag/tcl.h>
 #include <libusb.h>
-
-/* XDS110 USB serial number length */
-#define XDS110_SERIAL_LEN 8
 
 /* XDS110 stand-alone probe voltage supply limits */
 #define XDS110_MIN_VOLTAGE 1800
@@ -238,8 +225,6 @@ struct xds110_info {
 	/* TCK speed and delay count*/
 	uint32_t speed;
 	uint32_t delay_count;
-	/* XDS110 serial number */
-	char serial[XDS110_SERIAL_LEN + 1];
 	/* XDS110 voltage supply setting */
 	uint32_t voltage;
 	/* XDS110 firmware and hardware version */
@@ -269,7 +254,6 @@ static struct xds110_info xds110 = {
 	.is_ap_dirty = false,
 	.speed = XDS110_DEFAULT_TCK_SPEED,
 	.delay_count = 0,
-	.serial = {0},
 	.voltage = 0,
 	.firmware = 0,
 	.hardware = 0,
@@ -371,7 +355,7 @@ static bool usb_connect(void)
 					*data = '\0';
 
 					/* May be the requested device if serial number matches */
-					if (xds110.serial[0] == 0) {
+					if (!adapter_get_required_serial()) {
 						/* No serial number given; match first XDS110 found */
 						found = true;
 						break;
@@ -380,7 +364,7 @@ static bool usb_connect(void)
 						result = libusb_get_string_descriptor_ascii(dev,
 									desc.iSerialNumber, data, max_data);
 						if (result > 0 &&
-							strcmp((char *)data, (char *)xds110.serial) == 0) {
+							strcmp((char *)data, adapter_get_required_serial()) == 0) {
 							found = true;
 							break;
 						}
@@ -595,9 +579,6 @@ static bool usb_get_response(uint32_t *total_bytes_read, uint32_t timeout)
 
 static bool usb_send_command(uint16_t size)
 {
-	int written;
-	bool success = true;
-
 	/* Check the packet length */
 	if (size > USB_PAYLOAD_SIZE)
 		return false;
@@ -612,13 +593,7 @@ static bool usb_send_command(uint16_t size)
 	size += 3;
 
 	/* Send the data via the USB connection */
-	success = usb_write(xds110.write_packet, (int)size, &written);
-
-	/* Check if the correct number of bytes was written */
-	if (written != (int)size)
-		success = false;
-
-	return success;
+	return usb_write(xds110.write_packet, (int)size, NULL);
 }
 
 /***************************************************************************
@@ -1316,7 +1291,7 @@ static int xds110_swd_run_queue(void)
 
 	/* Transfer results into caller's buffers */
 	for (result = 0; result < xds110.txn_result_count; result++)
-		if (xds110.txn_dap_results[result] != 0)
+		if (xds110.txn_dap_results[result])
 			*xds110.txn_dap_results[result] = dap_results[result];
 
 	xds110.txn_request_size = 0;
@@ -1370,11 +1345,13 @@ static void xds110_swd_queue_cmd(uint8_t cmd, uint32_t *value)
 static void xds110_swd_read_reg(uint8_t cmd, uint32_t *value,
 	uint32_t ap_delay_clk)
 {
+	assert(cmd & SWD_CMD_RNW);
 	xds110_swd_queue_cmd(cmd, value);
 }
 static void xds110_swd_write_reg(uint8_t cmd, uint32_t value,
 	uint32_t ap_delay_clk)
 {
+	assert(!(cmd & SWD_CMD_RNW));
 	xds110_swd_queue_cmd(cmd, &value);
 }
 
@@ -1395,8 +1372,8 @@ static void xds110_show_info(void)
 		(((firmware >> 12) & 0xf) * 10) + ((firmware >>  8) & 0xf),
 		(((firmware >>  4) & 0xf) * 10) + ((firmware >>  0) & 0xf));
 	LOG_INFO("XDS110: hardware version = 0x%04x", xds110.hardware);
-	if (xds110.serial[0] != 0)
-		LOG_INFO("XDS110: serial number = %s", xds110.serial);
+	if (adapter_get_required_serial())
+		LOG_INFO("XDS110: serial number = %s", adapter_get_required_serial());
 	if (xds110.is_swd_mode) {
 		LOG_INFO("XDS110: connected to target via SWD");
 		LOG_INFO("XDS110: SWCLK set to %" PRIu32 " kHz", xds110.speed);
@@ -1625,7 +1602,7 @@ static void xds110_flush(void)
 			}
 			bits = 0;
 		}
-		if (xds110.txn_scan_results[result].buffer != 0)
+		if (xds110.txn_scan_results[result].buffer)
 			bit_copy(xds110.txn_scan_results[result].buffer, 0, data_pntr,
 				bits, xds110.txn_scan_results[result].num_bits);
 		bits += xds110.txn_scan_results[result].num_bits;
@@ -1692,7 +1669,6 @@ static void xds110_execute_tlr_reset(struct jtag_command *cmd)
 
 static void xds110_execute_pathmove(struct jtag_command *cmd)
 {
-	uint32_t i;
 	uint32_t num_states;
 	uint8_t *path;
 
@@ -1701,14 +1677,14 @@ static void xds110_execute_pathmove(struct jtag_command *cmd)
 	if (num_states == 0)
 		return;
 
-	path = (uint8_t *)malloc(num_states * sizeof(uint8_t));
-	if (path == 0) {
+	path = malloc(num_states * sizeof(uint8_t));
+	if (!path) {
 		LOG_ERROR("XDS110: unable to allocate memory");
 		return;
 	}
 
 	/* Convert requested path states into XDS API states */
-	for (i = 0; i < num_states; i++)
+	for (unsigned int i = 0; i < num_states; i++)
 		path[i] = (uint8_t)xds_jtag_state[cmd->cmd.pathmove->path[i]];
 
 	if (xds110.firmware >= OCD_FIRMWARE_VERSION) {
@@ -1727,7 +1703,6 @@ static void xds110_execute_pathmove(struct jtag_command *cmd)
 
 static void xds110_queue_scan(struct jtag_command *cmd)
 {
-	int i;
 	uint32_t offset;
 	uint32_t total_fields;
 	uint32_t total_bits;
@@ -1738,7 +1713,7 @@ static void xds110_queue_scan(struct jtag_command *cmd)
 	/* Calculate the total number of bits to scan */
 	total_bits = 0;
 	total_fields = 0;
-	for (i = 0; i < cmd->cmd.scan->num_fields; i++) {
+	for (unsigned int i = 0; i < cmd->cmd.scan->num_fields; i++) {
 		total_fields++;
 		total_bits += (uint32_t)cmd->cmd.scan->fields[i].num_bits;
 	}
@@ -1779,8 +1754,8 @@ static void xds110_queue_scan(struct jtag_command *cmd)
 	buffer = &xds110.txn_requests[xds110.txn_request_size];
 	/* Clear data out buffer to default value of all zeros */
 	memset((void *)buffer, 0x00, total_bytes);
-	for (i = 0; i < cmd->cmd.scan->num_fields; i++) {
-		if (cmd->cmd.scan->fields[i].out_value != 0) {
+	for (unsigned int i = 0; i < cmd->cmd.scan->num_fields; i++) {
+		if (cmd->cmd.scan->fields[i].out_value) {
 			/* Copy over data to scan out into request buffer */
 			bit_copy(buffer, offset, cmd->cmd.scan->fields[i].out_value, 0,
 				cmd->cmd.scan->fields[i].num_bits);
@@ -1798,7 +1773,7 @@ static void xds110_queue_scan(struct jtag_command *cmd)
 
 static void xds110_queue_runtest(struct jtag_command *cmd)
 {
-	uint32_t clocks = (uint32_t)cmd->cmd.stableclocks->num_cycles;
+	uint32_t clocks = cmd->cmd.stableclocks->num_cycles;
 	uint8_t end_state = (uint8_t)xds_jtag_state[cmd->cmd.runtest->end_state];
 
 	/* Check if new request would be too large to fit */
@@ -1817,7 +1792,7 @@ static void xds110_queue_runtest(struct jtag_command *cmd)
 
 static void xds110_queue_stableclocks(struct jtag_command *cmd)
 {
-	uint32_t clocks = (uint32_t)cmd->cmd.stableclocks->num_cycles;
+	uint32_t clocks = cmd->cmd.stableclocks->num_cycles;
 
 	/* Check if new request would be too large to fit */
 	if ((xds110.txn_request_size + 1 + sizeof(clocks) + 1) > MAX_DATA_BLOCK)
@@ -1863,9 +1838,9 @@ static void xds110_execute_command(struct jtag_command *cmd)
 	}
 }
 
-static int xds110_execute_queue(void)
+static int xds110_execute_queue(struct jtag_command *cmd_queue)
 {
-	struct jtag_command *cmd = jtag_command_queue;
+	struct jtag_command *cmd = cmd_queue;
 
 	while (cmd) {
 		xds110_execute_command(cmd);
@@ -2024,34 +1999,6 @@ COMMAND_HANDLER(xds110_handle_info_command)
 	return ERROR_OK;
 }
 
-COMMAND_HANDLER(xds110_handle_serial_command)
-{
-	wchar_t serial[XDS110_SERIAL_LEN + 1];
-
-	xds110.serial[0] = 0;
-
-	if (CMD_ARGC == 1) {
-		size_t len = mbstowcs(0, CMD_ARGV[0], 0);
-		if (len > XDS110_SERIAL_LEN) {
-			LOG_ERROR("XDS110: serial number is limited to %d characters",
-				XDS110_SERIAL_LEN);
-			return ERROR_FAIL;
-		}
-		if ((size_t)-1 == mbstowcs(serial, CMD_ARGV[0], len + 1)) {
-			LOG_ERROR("XDS110: unable to convert serial number");
-			return ERROR_FAIL;
-		}
-
-		for (uint32_t i = 0; i < len; i++)
-			xds110.serial[i] = (char)serial[i];
-
-		xds110.serial[len] = 0;
-	} else
-		return ERROR_COMMAND_SYNTAX_ERROR;
-
-	return ERROR_OK;
-}
-
 COMMAND_HANDLER(xds110_handle_supply_voltage_command)
 {
 	uint32_t voltage = 0;
@@ -2081,13 +2028,6 @@ static const struct command_registration xds110_subcommand_handlers[] = {
 		.mode = COMMAND_EXEC,
 		.help = "show XDS110 info",
 		.usage = "",
-	},
-	{
-		.name = "serial",
-		.handler = &xds110_handle_serial_command,
-		.mode = COMMAND_CONFIG,
-		.help = "set the XDS110 probe serial number",
-		.usage = "serial_string",
 	},
 	{
 		.name = "supply",

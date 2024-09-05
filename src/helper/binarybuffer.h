@@ -1,28 +1,21 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+
 /***************************************************************************
  *   Copyright (C) 2004, 2005 by Dominic Rath                              *
  *   Dominic.Rath@gmx.de                                                   *
  *                                                                         *
  *   Copyright (C) 2007,2008 Øyvind Harboe                                 *
  *   oyvind.harboe@zylin.com                                               *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 #ifndef OPENOCD_HELPER_BINARYBUFFER_H
 #define OPENOCD_HELPER_BINARYBUFFER_H
 
-#include "list.h"
+#include <helper/list.h>
+#include <helper/types.h>
+
+#define ERROR_INVALID_NUMBER         (-1700)
+#define ERROR_NUMBER_EXCEEDS_BUFFER  (-1701)
 
 /** @file
  * Support functions to access arbitrary bits in a byte array
@@ -199,8 +192,18 @@ void *buf_set_ones(void *buf, unsigned size);
 void *buf_set_buf(const void *src, unsigned src_start,
 		  void *dst, unsigned dst_start, unsigned len);
 
-int str_to_buf(const char *str, unsigned len,
-		void *bin_buf, unsigned buf_size, unsigned radix);
+/**
+ * Parse an unsigned number (provided as a zero-terminated string)
+ * into a bit buffer whose size is buf_len bits.
+ * @param str Input number, zero-terminated string
+ * @param _buf Output buffer, allocated by the caller
+ * @param buf_len Output buffer size in bits
+ * @param radix Base of the input number - 16, 10, 8 or 0.
+ *              0 means auto-detect the radix.
+ */
+int str_to_buf(const char *str, void *_buf, unsigned int buf_len,
+	unsigned int radix, unsigned int *_detected_radix);
+
 char *buf_to_hex_str(const void *buf, unsigned size);
 
 /* read a uint32_t from a buffer in target memory endianness */

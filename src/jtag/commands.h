@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+
 /***************************************************************************
  *   Copyright (C) 2005 by Dominic Rath                                    *
  *   Dominic.Rath@gmx.de                                                   *
@@ -7,26 +9,13 @@
  *                                                                         *
  *   Copyright (C) 2009 Zachary T Welch                                    *
  *   zw@superlucidity.net                                                  *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 #ifndef OPENOCD_JTAG_COMMANDS_H
 #define OPENOCD_JTAG_COMMANDS_H
 
 /**
- * The inferred type of a scan_command_s structure, indicating whether
+ * The inferred type of a scan_command structure, indicating whether
  * the command has the host scan in from the device, the host scan out
  * to the device, or both.
  */
@@ -40,14 +29,14 @@ enum scan_type {
 };
 
 /**
- * The scan_command provide a means of encapsulating a set of scan_field_s
+ * The scan_command provide a means of encapsulating a set of scan_field
  * structures that should be scanned in/out to the device.
  */
 struct scan_command {
 	/** instruction/not data scan */
 	bool ir_scan;
 	/** number of fields in *fields array */
-	int num_fields;
+	unsigned int num_fields;
 	/** pointer to an array of data scan fields */
 	struct scan_field *fields;
 	/** state in which JTAG commands should finish */
@@ -61,14 +50,14 @@ struct statemove_command {
 
 struct pathmove_command {
 	/** number of states in *path */
-	int num_states;
+	unsigned int num_states;
 	/** states that have to be passed */
 	tap_state_t *path;
 };
 
 struct runtest_command {
 	/** number of cycles to spend in Run-Test/Idle state */
-	int num_cycles;
+	unsigned int num_cycles;
 	/** state in which JTAG commands should finish */
 	tap_state_t end_state;
 };
@@ -76,7 +65,7 @@ struct runtest_command {
 
 struct stableclocks_command {
 	/** number of clock cycles that should be sent */
-	int num_cycles;
+	unsigned int num_cycles;
 };
 
 
@@ -111,7 +100,7 @@ struct sleep_command {
  */
 struct tms_command {
 	/** How many bits should be clocked out. */
-	unsigned num_bits;
+	unsigned int num_bits;
 	/** The bits to clock out; the LSB is bit 0 of bits[0]. */
 	const uint8_t *bits;
 };
@@ -134,7 +123,7 @@ union jtag_command_container {
 
 /**
  * The type of the @c jtag_command_container contained by a
- * @c jtag_command_s structure.
+ * @c jtag_command structure.
  */
 enum jtag_command_type {
 	JTAG_SCAN         = 1,
@@ -160,17 +149,15 @@ struct jtag_command {
 	struct jtag_command *next;
 };
 
-/** The current queue of jtag_command_s structures. */
-extern struct jtag_command *jtag_command_queue;
-
 void *cmd_queue_alloc(size_t size);
 
 void jtag_queue_command(struct jtag_command *cmd);
 void jtag_command_queue_reset(void);
+struct jtag_command *jtag_command_queue_get(void);
 
 void jtag_scan_field_clone(struct scan_field *dst, const struct scan_field *src);
 enum scan_type jtag_scan_type(const struct scan_command *cmd);
-int jtag_scan_size(const struct scan_command *cmd);
+unsigned int jtag_scan_size(const struct scan_command *cmd);
 int jtag_read_buffer(uint8_t *buffer, const struct scan_command *cmd);
 int jtag_build_buffer(const struct scan_command *cmd, uint8_t **buffer);
 

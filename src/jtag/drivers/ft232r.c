@@ -1,19 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 /***************************************************************************
  *   Copyright (C) 2010 Serge Vakulenko                                    *
  *   serge@vak.ru                                                          *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -26,6 +15,7 @@
 #endif
 
 /* project specific includes */
+#include <jtag/adapter.h>
 #include <jtag/interface.h>
 #include <jtag/commands.h>
 #include <helper/time_support.h>
@@ -68,7 +58,6 @@
 
 #define FT232R_BUF_SIZE_EXTRA	4096
 
-static char *ft232r_serial_desc;
 static uint16_t ft232r_vid = 0x0403; /* FTDI */
 static uint16_t ft232r_pid = 0x6001; /* FT232R */
 static struct libusb_device_handle *adapter;
@@ -246,7 +235,7 @@ static int ft232r_speed(int divisor)
 
 	if (jtag_libusb_control_transfer(adapter,
 		LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT,
-		SIO_SET_BAUD_RATE, divisor, 0, 0, 0, 1000) != 0) {
+		SIO_SET_BAUD_RATE, divisor, 0, NULL, 0, 1000, NULL) != ERROR_OK) {
 		LOG_ERROR("cannot set baud rate");
 		return ERROR_JTAG_DEVICE_ERROR;
 	}
@@ -257,7 +246,8 @@ static int ft232r_init(void)
 {
 	uint16_t avids[] = {ft232r_vid, 0};
 	uint16_t apids[] = {ft232r_pid, 0};
-	if (jtag_libusb_open(avids, apids, ft232r_serial_desc, &adapter, NULL)) {
+	if (jtag_libusb_open(avids, apids, NULL, &adapter, NULL)) {
+		const char *ft232r_serial_desc = adapter_get_required_serial();
 		LOG_ERROR("ft232r not found: vid=%04x, pid=%04x, serial=%s\n",
 			ft232r_vid, ft232r_pid, (!ft232r_serial_desc) ? "[any]" : ft232r_serial_desc);
 		return ERROR_JTAG_INIT_FAILED;
@@ -276,7 +266,7 @@ static int ft232r_init(void)
 	/* Reset the device. */
 	if (jtag_libusb_control_transfer(adapter,
 		LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT,
-		SIO_RESET, 0, 0, 0, 0, 1000) != 0) {
+		SIO_RESET, 0, 0, NULL, 0, 1000, NULL) != ERROR_OK) {
 		LOG_ERROR("unable to reset device");
 		return ERROR_JTAG_INIT_FAILED;
 	}
@@ -285,7 +275,7 @@ static int ft232r_init(void)
 	if (jtag_libusb_control_transfer(adapter,
 		LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT,
 		SIO_SET_BITMODE, (1<<tck_gpio) | (1<<tdi_gpio) | (1<<tms_gpio) | (1<<ntrst_gpio) | (1<<nsysrst_gpio) | 0x400,
-		0, 0, 0, 1000) != 0) {
+		0, NULL, 0, 1000, NULL) != ERROR_OK) {
 		LOG_ERROR("cannot set sync bitbang mode");
 		return ERROR_JTAG_INIT_FAILED;
 	}
@@ -298,13 +288,13 @@ static int ft232r_init(void)
 	if (jtag_libusb_control_transfer(adapter,
 		LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT,
 		SIO_SET_BAUD_RATE, divisor,
-		0, 0, 0, 1000) != 0) {
+		0, NULL, 0, 1000, NULL) != ERROR_OK) {
 		LOG_ERROR("cannot set baud rate");
 		return ERROR_JTAG_INIT_FAILED;
 	}
 	if (jtag_libusb_control_transfer(adapter,
 		LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT,
-		SIO_SET_LATENCY_TIMER, latency_timer, 0, 0, 0, 1000) != 0) {
+		SIO_SET_LATENCY_TIMER, latency_timer, 0, NULL, 0, 1000, NULL) != ERROR_OK) {
 		LOG_ERROR("unable to set latency timer");
 		return ERROR_JTAG_INIT_FAILED;
 	}
@@ -325,7 +315,7 @@ static int ft232r_quit(void)
 		if (jtag_libusb_control_transfer(adapter,
 			LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE | LIBUSB_ENDPOINT_OUT,
 			SIO_SET_BITMODE, ft232r_restore_bitmode,
-			0, 0, 0, 1000) != 0) {
+			0, NULL, 0, 1000, NULL) != ERROR_OK) {
 			LOG_ERROR("cannot set bitmode to restore serial port");
 		}
 	}
@@ -393,16 +383,6 @@ static int ft232r_bit_name_to_number(const char *name)
 		if (strcasecmp(name, ft232r_bit_name_array[i]) == 0)
 			return i;
 	return -1;
-}
-
-COMMAND_HANDLER(ft232r_handle_serial_desc_command)
-{
-	if (CMD_ARGC == 1)
-		ft232r_serial_desc = strdup(CMD_ARGV[0]);
-	else
-		LOG_ERROR("require exactly one argument to "
-				  "ft232r_serial_desc <serial>");
-	return ERROR_OK;
 }
 
 COMMAND_HANDLER(ft232r_handle_vid_pid_command)
@@ -562,13 +542,6 @@ COMMAND_HANDLER(ft232r_handle_restore_serial_command)
 
 static const struct command_registration ft232r_subcommand_handlers[] = {
 	{
-		.name = "serial_desc",
-		.handler = ft232r_handle_serial_desc_command,
-		.mode = COMMAND_CONFIG,
-		.help = "USB serial descriptor of the adapter",
-		.usage = "serial string",
-	},
-	{
 		.name = "vid_pid",
 		.handler = ft232r_handle_vid_pid_command,
 		.mode = COMMAND_CONFIG,
@@ -684,7 +657,7 @@ static int syncbb_execute_tms(struct jtag_command *cmd)
 	unsigned num_bits = cmd->cmd.tms->num_bits;
 	const uint8_t *bits = cmd->cmd.tms->bits;
 
-	LOG_DEBUG_IO("TMS: %d bits", num_bits);
+	LOG_DEBUG_IO("TMS: %u bits", num_bits);
 
 	int tms = 0;
 	for (unsigned i = 0; i < num_bits; i++) {
@@ -699,7 +672,7 @@ static int syncbb_execute_tms(struct jtag_command *cmd)
 
 static void syncbb_path_move(struct pathmove_command *cmd)
 {
-	int num_states = cmd->num_states;
+	unsigned int num_states = cmd->num_states;
 	int state_count;
 	int tms = 0;
 
@@ -729,9 +702,8 @@ static void syncbb_path_move(struct pathmove_command *cmd)
 	tap_set_end_state(tap_get_state());
 }
 
-static void syncbb_runtest(int num_cycles)
+static void syncbb_runtest(unsigned int num_cycles)
 {
-	int i;
 
 	tap_state_t saved_end_state = tap_get_end_state();
 
@@ -742,7 +714,7 @@ static void syncbb_runtest(int num_cycles)
 	}
 
 	/* execute num_cycles */
-	for (i = 0; i < num_cycles; i++) {
+	for (unsigned int i = 0; i < num_cycles; i++) {
 		ft232r_write(0, 0, 0);
 		ft232r_write(1, 0, 0);
 	}
@@ -762,13 +734,12 @@ static void syncbb_runtest(int num_cycles)
  * this function checks the current stable state to decide on the value of TMS
  * to use.
  */
-static void syncbb_stableclocks(int num_cycles)
+static void syncbb_stableclocks(unsigned int num_cycles)
 {
 	int tms = (tap_get_state() == TAP_RESET ? 1 : 0);
-	int i;
 
 	/* send num_cycles clocks onto the cable */
-	for (i = 0; i < num_cycles; i++) {
+	for (unsigned int i = 0; i < num_cycles; i++) {
 		ft232r_write(1, tms, 0);
 		ft232r_write(0, tms, 0);
 	}
@@ -830,9 +801,9 @@ static void syncbb_scan(bool ir_scan, enum scan_type type, uint8_t *buffer, int 
 		}
 }
 
-static int syncbb_execute_queue(void)
+static int syncbb_execute_queue(struct jtag_command *cmd_queue)
 {
-	struct jtag_command *cmd = jtag_command_queue; /* currently processed command */
+	struct jtag_command *cmd = cmd_queue; /* currently processed command */
 	int scan_size;
 	enum scan_type type;
 	uint8_t *buffer;
@@ -859,7 +830,7 @@ static int syncbb_execute_queue(void)
 				break;
 
 			case JTAG_RUNTEST:
-				LOG_DEBUG_IO("runtest %i cycles, end in %s", cmd->cmd.runtest->num_cycles,
+				LOG_DEBUG_IO("runtest %u cycles, end in %s", cmd->cmd.runtest->num_cycles,
 					tap_state_name(cmd->cmd.runtest->end_state));
 
 				syncbb_end_state(cmd->cmd.runtest->end_state);
@@ -881,7 +852,7 @@ static int syncbb_execute_queue(void)
 				break;
 
 			case JTAG_PATHMOVE:
-				LOG_DEBUG_IO("pathmove: %i states, end in %s", cmd->cmd.pathmove->num_states,
+				LOG_DEBUG_IO("pathmove: %u states, end in %s", cmd->cmd.pathmove->num_states,
 					tap_state_name(cmd->cmd.pathmove->path[cmd->cmd.pathmove->num_states - 1]));
 
 				syncbb_path_move(cmd->cmd.pathmove);

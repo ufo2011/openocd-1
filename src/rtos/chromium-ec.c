@@ -1,22 +1,25 @@
+// SPDX-License-Identifier: GPL-2.0-only
+
 /*
- * SPDX-License-Identifier: GPL-2.0
- *
  * Copyright (c) 2018 National Instruments Corp
  * Author: Moritz Fischer <moritz.fischer@ettus.com>
  *
  * Chromium-EC RTOS Task Awareness
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#include <helper/bits.h>
 #include <rtos/rtos.h>
 #include <target/target.h>
-#include <target/target_type.h>
 
 #include "rtos_standard_stackings.h"
 
 #define CROS_EC_MAX_TASKS 32
 #define CROS_EC_MAX_NAME 200
 #define CROS_EC_IDLE_STRING "<< idle >>"
-#define BIT(x) (1 << (x))
 
 struct chromium_ec_params {
 	const char *target_name;
@@ -116,7 +119,7 @@ static int chromium_ec_create(struct target *target)
 	size_t t;
 
 	for (t = 0; t < ARRAY_SIZE(chromium_ec_params_list); t++)
-		if (!strcmp(chromium_ec_params_list[t].target_name, target->type->name)) {
+		if (!strcmp(chromium_ec_params_list[t].target_name, target_type_name(target))) {
 			params = malloc(sizeof(*params));
 			if (!params) {
 				LOG_ERROR("Chromium-EC: out of memory");
@@ -129,11 +132,11 @@ static int chromium_ec_create(struct target *target)
 			target->rtos->thread_details = NULL;
 			target->rtos->thread_count = 0;
 
-			LOG_INFO("Chromium-EC: Using target: %s", target->type->name);
+			LOG_INFO("Chromium-EC: Using target: %s", target_type_name(target));
 			return ERROR_OK;
 		}
 
-	LOG_ERROR("Chromium-EC: target not supported: %s", target->type->name);
+	LOG_ERROR("Chromium-EC: target not supported: %s", target_type_name(target));
 	return ERROR_FAIL;
 }
 

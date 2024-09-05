@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 /***************************************************************************
  *   Copyright (C) 2005 by Dominic Rath                                    *
  *   Dominic.Rath@gmx.de                                                   *
@@ -7,19 +9,6 @@
  *                                                                         *
  *   Copyright (C) 2008 Rob Brown, Lou Deluxe                              *
  *   rob@cobbleware.com, lou.openocd012@fixit.nospammail.net               *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -58,8 +47,6 @@
 #define USB_EP2IN_ADDR          (USB_EP2OUT_ADDR | 0x80)
 #define USB_EP2IN_SIZE          (USB_EP2OUT_SIZE)
 #define USB_EP2BANK_SIZE        (512)
-
-#define USB_TIMEOUT_MS          (3 * 1000)
 
 #define DTC_STATUS_POLL_BYTE    (ST7_USB_BUF_EP0OUT + 0xff)
 
@@ -133,7 +120,7 @@ static int ep1_generic_commandl(struct libusb_device_handle *hdev_param, size_t 
 			hdev_param,
 			USB_EP1OUT_ADDR,
 			(char *)usb_buffer, sizeof(usb_buffer),
-			USB_TIMEOUT_MS,
+			LIBUSB_TIMEOUT_MS,
 			&transferred
 			);
 
@@ -176,7 +163,7 @@ static ssize_t ep1_memory_read(
 		usb_ret = jtag_libusb_bulk_write(
 				hdev_param, USB_EP1OUT_ADDR,
 				(char *)usb_buffer, sizeof(usb_buffer),
-				USB_TIMEOUT_MS,
+				LIBUSB_TIMEOUT_MS,
 				&transferred
 				);
 
@@ -186,7 +173,7 @@ static ssize_t ep1_memory_read(
 		usb_ret = jtag_libusb_bulk_read(
 				hdev_param, USB_EP1IN_ADDR,
 				(char *)buffer, length,
-				USB_TIMEOUT_MS,
+				LIBUSB_TIMEOUT_MS,
 				&transferred
 				);
 
@@ -241,7 +228,7 @@ static ssize_t ep1_memory_write(struct libusb_device_handle *hdev_param, uint16_
 		usb_ret = jtag_libusb_bulk_write(
 				hdev_param, USB_EP1OUT_ADDR,
 				(char *)usb_buffer, sizeof(usb_buffer),
-				USB_TIMEOUT_MS,
+				LIBUSB_TIMEOUT_MS,
 				&transferred
 				);
 
@@ -299,13 +286,13 @@ static uint8_t dtc_entry_download;
 static int dtc_load_from_buffer(struct libusb_device_handle *hdev_param, const uint8_t *buffer,
 		size_t length)
 {
-	struct header_s {
+	struct header {
 		uint8_t type;
 		uint8_t length;
 	};
 
 	int usb_err;
-	struct header_s *header;
+	struct header *header;
 	uint8_t lut_start = 0xc0;
 
 	dtc_entry_download = 0;
@@ -324,7 +311,7 @@ static int dtc_load_from_buffer(struct libusb_device_handle *hdev_param, const u
 			exit(1);
 		}
 
-		header = (struct header_s *)buffer;
+		header = (struct header *)buffer;
 		buffer += sizeof(*header);
 		length -= sizeof(*header);
 
@@ -432,7 +419,7 @@ static int dtc_start_download(void)
 	usb_err = jtag_libusb_bulk_read(
 			hdev, USB_EP1IN_ADDR,
 			(char *)&ep2txr, 1,
-			USB_TIMEOUT_MS,
+			LIBUSB_TIMEOUT_MS,
 			&transferred
 			);
 	if (usb_err != ERROR_OK)
@@ -462,7 +449,7 @@ static int dtc_start_download(void)
 	usb_err = jtag_libusb_bulk_read(
 			hdev, USB_EP1IN_ADDR,
 			(char *)&ep2txr, 1,
-			USB_TIMEOUT_MS,
+			LIBUSB_TIMEOUT_MS,
 			&transferred
 			);
 
@@ -488,7 +475,7 @@ static int dtc_run_download(
 			hdev_param,
 			USB_EP2OUT_ADDR,
 			(char *)command_buffer, USB_EP2BANK_SIZE,
-			USB_TIMEOUT_MS,
+			LIBUSB_TIMEOUT_MS,
 			&transferred
 			);
 	if (usb_err < 0)
@@ -512,7 +499,7 @@ static int dtc_run_download(
 				hdev_param,
 				USB_EP1IN_ADDR,
 				&dtc_status, 1,
-				USB_TIMEOUT_MS,
+				LIBUSB_TIMEOUT_MS,
 				&transferred
 				);
 		if (usb_err < 0)
@@ -533,7 +520,7 @@ static int dtc_run_download(
 				hdev_param,
 				USB_EP2IN_ADDR,
 				(char *)reply_buffer, reply_buffer_size,
-				USB_TIMEOUT_MS,
+				LIBUSB_TIMEOUT_MS,
 				&transferred
 				);
 
@@ -645,7 +632,7 @@ static int dtc_queue_run(void)
 	uint8_t dtc_mask, tdo_mask;
 	uint8_t reply_buffer[USB_EP2IN_SIZE];
 
-	assert((dtc_queue.rq_head != 0) == (dtc_queue.reply_index > 0));
+	assert((!!dtc_queue.rq_head) == (dtc_queue.reply_index > 0));
 	assert(dtc_queue.cmd_index < USB_EP2BANK_SIZE);
 	assert(dtc_queue.reply_index <= USB_EP2IN_SIZE);
 
@@ -882,7 +869,7 @@ static void rlink_state_move(void)
 
 static void rlink_path_move(struct pathmove_command *cmd)
 {
-	int num_states = cmd->num_states;
+	unsigned int num_states = cmd->num_states;
 	int state_count;
 	int tms = 0;
 
@@ -909,10 +896,8 @@ static void rlink_path_move(struct pathmove_command *cmd)
 	tap_set_end_state(tap_get_state());
 }
 
-static void rlink_runtest(int num_cycles)
+static void rlink_runtest(unsigned int num_cycles)
 {
-	int i;
-
 	tap_state_t saved_end_state = tap_get_end_state();
 
 	/* only do a state_move when we're not already in RTI */
@@ -922,7 +907,7 @@ static void rlink_runtest(int num_cycles)
 	}
 
 	/* execute num_cycles */
-	for (i = 0; i < num_cycles; i++)
+	for (unsigned int i = 0; i < num_cycles; i++)
 		tap_state_queue_append(0);
 
 	/* finish in end_state */
@@ -954,7 +939,7 @@ static void rlink_reset(int trst, int srst)
 	usb_err = jtag_libusb_bulk_read(
 			hdev, USB_EP1IN_ADDR,
 			(char *)&bitmap, 1,
-			USB_TIMEOUT_MS,
+			LIBUSB_TIMEOUT_MS,
 			&transferred
 			);
 	if (usb_err != ERROR_OK || transferred < 1) {
@@ -990,7 +975,7 @@ static void rlink_reset(int trst, int srst)
 	usb_err = jtag_libusb_bulk_read(
 			hdev, USB_EP1IN_ADDR,
 			(char *)&bitmap, 1,
-			USB_TIMEOUT_MS,
+			LIBUSB_TIMEOUT_MS,
 			&transferred
 			);
 	if (usb_err != ERROR_OK || transferred < 1) {
@@ -1021,7 +1006,7 @@ static void rlink_reset(int trst, int srst)
 	usb_err = jtag_libusb_bulk_read(
 			hdev, USB_EP1IN_ADDR,
 			(char *)&bitmap, 1,
-			USB_TIMEOUT_MS,
+			LIBUSB_TIMEOUT_MS,
 			&transferred
 			);
 	if (usb_err != ERROR_OK || transferred < 1) {
@@ -1275,9 +1260,9 @@ static int rlink_scan(struct jtag_command *cmd, enum scan_type type,
 	return 0;
 }
 
-static int rlink_execute_queue(void)
+static int rlink_execute_queue(struct jtag_command *cmd_queue)
 {
-	struct jtag_command *cmd = jtag_command_queue;	/* currently processed command */
+	struct jtag_command *cmd = cmd_queue;	/* currently processed command */
 	int scan_size;
 	enum scan_type type;
 	uint8_t *buffer;
@@ -1336,7 +1321,7 @@ static int rlink_execute_queue(void)
 				rlink_state_move();
 				break;
 			case JTAG_PATHMOVE:
-				LOG_DEBUG_IO("pathmove: %i states, end in %i",
+				LOG_DEBUG_IO("pathmove: %u states, end in %i",
 						cmd->cmd.pathmove->num_states,
 						cmd->cmd.pathmove->path[cmd->cmd.pathmove->num_states - 1]);
 				rlink_path_move(cmd->cmd.pathmove);
@@ -1576,7 +1561,7 @@ static int rlink_init(void)
 	jtag_libusb_bulk_read(
 		hdev, USB_EP1IN_ADDR,
 		(char *)reply_buffer, 1,
-		USB_TIMEOUT_MS,
+		LIBUSB_TIMEOUT_MS,
 		&transferred
 		);
 
@@ -1601,7 +1586,7 @@ static int rlink_init(void)
 	jtag_libusb_bulk_read(
 		hdev, USB_EP1IN_ADDR,
 		(char *)reply_buffer, 1,
-		USB_TIMEOUT_MS,
+		LIBUSB_TIMEOUT_MS,
 		&transferred
 		);
 

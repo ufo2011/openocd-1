@@ -1,22 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 /***************************************************************************
  *   Copyright (C) 2011 by Mathias Kuester                                 *
  *   Mathias Kuester <kesmtp@freenet.de>                                   *
  *                                                                         *
  *   Copyright (C) 2012 by Spencer Oliver                                  *
  *   spen@spen-soft.co.uk                                                  *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -28,17 +17,15 @@
 #include <transport/transport.h>
 #include <helper/time_support.h>
 
-#include <jtag/hla/hla_tcl.h>
 #include <jtag/hla/hla_layout.h>
 #include <jtag/hla/hla_transport.h>
 #include <jtag/hla/hla_interface.h>
 
 #include <target/target.h>
 
-static struct hl_interface_s hl_if = {
+static struct hl_interface hl_if = {
 	.param = {
 		.device_desc = NULL,
-		.serial = NULL,
 		.vid = { 0 },
 		.pid = { 0 },
 		.transport = HL_TRANSPORT_UNKNOWN,
@@ -113,7 +100,7 @@ int hl_interface_init_target(struct target *t)
 	}
 
 	t->tap->priv = &hl_if;
-	t->tap->hasidcode = 1;
+	t->tap->has_idcode = true;
 
 	return ERROR_OK;
 }
@@ -136,7 +123,6 @@ static int hl_interface_quit(void)
 	jtag_command_queue_reset();
 
 	free((void *)hl_if.param.device_desc);
-	free((void *)hl_if.param.serial);
 
 	return ERROR_OK;
 }
@@ -238,19 +224,6 @@ COMMAND_HANDLER(hl_interface_handle_device_desc_command)
 	return ERROR_OK;
 }
 
-COMMAND_HANDLER(hl_interface_handle_serial_command)
-{
-	LOG_DEBUG("hl_interface_handle_serial_command");
-
-	if (CMD_ARGC == 1) {
-		hl_if.param.serial = strdup(CMD_ARGV[0]);
-	} else {
-		LOG_ERROR("expected exactly one argument to hl_serial <serial-number>");
-	}
-
-	return ERROR_OK;
-}
-
 COMMAND_HANDLER(hl_interface_handle_layout_command)
 {
 	LOG_DEBUG("hl_interface_handle_layout_command");
@@ -346,49 +319,53 @@ COMMAND_HANDLER(interface_handle_hla_command)
 	return ERROR_OK;
 }
 
-static const struct command_registration hl_interface_command_handlers[] = {
+static const struct command_registration hl_interface_subcommand_handlers[] = {
 	{
-	 .name = "hla_device_desc",
+	 .name = "device_desc",
 	 .handler = &hl_interface_handle_device_desc_command,
 	 .mode = COMMAND_CONFIG,
 	 .help = "set the device description of the adapter",
 	 .usage = "description_string",
 	 },
 	{
-	 .name = "hla_serial",
-	 .handler = &hl_interface_handle_serial_command,
-	 .mode = COMMAND_CONFIG,
-	 .help = "set the serial number of the adapter",
-	 .usage = "serial_string",
-	 },
-	{
-	 .name = "hla_layout",
+	 .name = "layout",
 	 .handler = &hl_interface_handle_layout_command,
 	 .mode = COMMAND_CONFIG,
 	 .help = "set the layout of the adapter",
 	 .usage = "layout_name",
 	 },
 	{
-	 .name = "hla_vid_pid",
+	 .name = "vid_pid",
 	 .handler = &hl_interface_handle_vid_pid_command,
 	 .mode = COMMAND_CONFIG,
 	 .help = "the vendor and product ID of the adapter",
 	 .usage = "(vid pid)*",
 	 },
 	{
-	 .name = "hla_stlink_backend",
+	 .name = "stlink_backend",
 	 .handler = &hl_interface_handle_stlink_backend_command,
 	 .mode = COMMAND_CONFIG,
 	 .help = "select which ST-Link backend to use",
 	 .usage = "usb | tcp [port]",
 	},
 	 {
-	 .name = "hla_command",
+	 .name = "command",
 	 .handler = &interface_handle_hla_command,
 	 .mode = COMMAND_EXEC,
 	 .help = "execute a custom adapter-specific command",
 	 .usage = "<command>",
 	 },
+	COMMAND_REGISTRATION_DONE
+};
+
+static const struct command_registration hl_interface_command_handlers[] = {
+	{
+		.name = "hla",
+		.mode = COMMAND_ANY,
+		.help = "perform hla management",
+		.chain = hl_interface_subcommand_handlers,
+		.usage = "",
+	},
 	COMMAND_REGISTRATION_DONE
 };
 

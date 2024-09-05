@@ -1,16 +1,8 @@
-/*****************************************************************************
- *   Copyright (C) 2016 by Matthias Welwarsky <matthias.welwarsky@sysgo.com> *
- *                                                                           *
- *   This program is free software; you can redistribute it and/or modify    *
- *   it under the terms of the GNU General Public License as published by    *
- *   the Free Software Foundation; either version 2 of the License, or       *
- *   (at your option) any later version.                                     *
- *                                                                           *
- *   This program is distributed in the hope that it will be useful,         *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of          *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the           *
- *   GNU General Public License for more details.                            *
- ****************************************************************************/
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+/*
+ * Copyright (C) 2016 by Matthias Welwarsky <matthias.welwarsky@sysgo.com>
+ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -29,7 +21,7 @@ struct mem_ap {
 	int common_magic;
 	struct adiv5_dap *dap;
 	struct adiv5_ap *ap;
-	int ap_num;
+	uint64_t ap_num;
 };
 
 static int mem_ap_target_create(struct target *target, Jim_Interp *interp)
@@ -74,7 +66,12 @@ static int mem_ap_init_target(struct command_context *cmd_ctx, struct target *ta
 
 static void mem_ap_deinit_target(struct target *target)
 {
+	struct mem_ap *mem_ap = target->arch_info;
+
 	LOG_DEBUG("%s", __func__);
+
+	if (mem_ap->ap)
+		dap_put_ap(mem_ap->ap);
 
 	free(target->private_config);
 	free(target->arch_info);
@@ -139,7 +136,13 @@ static int mem_ap_examine(struct target *target)
 	struct mem_ap *mem_ap = target->arch_info;
 
 	if (!target_was_examined(target)) {
-		mem_ap->ap = dap_ap(mem_ap->dap, mem_ap->ap_num);
+		if (!mem_ap->ap) {
+			mem_ap->ap = dap_get_ap(mem_ap->dap, mem_ap->ap_num);
+			if (!mem_ap->ap) {
+				LOG_ERROR("Cannot get AP");
+				return ERROR_FAIL;
+			}
+		}
 		target_set_examined(target);
 		target->state = TARGET_UNKNOWN;
 		target->debug_reason = DBG_REASON_UNDEFINED;
@@ -179,7 +182,7 @@ static struct reg_arch_type mem_ap_reg_arch_type = {
 	.set = mem_ap_reg_set,
 };
 
-const char *mem_ap_get_gdb_arch(struct target *target)
+static const char *mem_ap_get_gdb_arch(const struct target *target)
 {
 	return "arm";
 }
@@ -191,11 +194,11 @@ const char *mem_ap_get_gdb_arch(struct target *target)
  * reg[24]:     32 bits, fps
  * reg[25]:     32 bits, cpsr
  *
- * Set 'exist' only to reg[0..15], so initial response to GDB is correct
+ * GDB requires only reg[0..15]
  */
 #define NUM_REGS     26
+#define NUM_GDB_REGS 16
 #define MAX_REG_SIZE 96
-#define REG_EXIST(n) ((n) < 16)
 #define REG_SIZE(n)  ((((n) >= 16) && ((n) < 24)) ? 96 : 32)
 
 struct mem_ap_alloc_reg_list {
@@ -215,14 +218,14 @@ static int mem_ap_get_gdb_reg_list(struct target *target, struct reg **reg_list[
 	}
 
 	*reg_list = mem_ap_alloc->reg_list;
-	*reg_list_size = NUM_REGS;
+	*reg_list_size = (reg_class == REG_CLASS_ALL) ? NUM_REGS : NUM_GDB_REGS;
 	struct reg *regs = mem_ap_alloc->regs;
 
 	for (int i = 0; i < NUM_REGS; i++) {
 		regs[i].number = i;
 		regs[i].value = mem_ap_alloc->regs_value;
 		regs[i].size = REG_SIZE(i);
-		regs[i].exist = REG_EXIST(i);
+		regs[i].exist = true;
 		regs[i].type = &mem_ap_reg_arch_type;
 		(*reg_list)[i] = &regs[i];
 	}

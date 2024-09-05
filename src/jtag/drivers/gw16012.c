@@ -1,19 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 /***************************************************************************
  *   Copyright (C) 2006 by Dominic Rath                                    *
  *   Dominic.Rath@gmx.de                                                   *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -196,10 +185,9 @@ static void gw16012_path_move(struct pathmove_command *cmd)
 	tap_set_end_state(tap_get_state());
 }
 
-static void gw16012_runtest(int num_cycles)
+static void gw16012_runtest(unsigned int num_cycles)
 {
 	tap_state_t saved_end_state = tap_get_end_state();
-	int i;
 
 	/* only do a state_move when we're not already in IDLE */
 	if (tap_get_state() != TAP_IDLE) {
@@ -207,7 +195,7 @@ static void gw16012_runtest(int num_cycles)
 		gw16012_state_move();
 	}
 
-	for (i = 0; i < num_cycles; i++) {
+	for (unsigned int i = 0; i < num_cycles; i++) {
 		gw16012_control(0x0); /* single-bit mode */
 		gw16012_data(0x0); /* TMS cycle with TMS low */
 	}
@@ -281,9 +269,9 @@ static void gw16012_scan(bool ir_scan, enum scan_type type, uint8_t *buffer, int
 	}
 }
 
-static int gw16012_execute_queue(void)
+static int gw16012_execute_queue(struct jtag_command *cmd_queue)
 {
-	struct jtag_command *cmd = jtag_command_queue; /* currently processed command */
+	struct jtag_command *cmd = cmd_queue; /* currently processed command */
 	int scan_size;
 	enum scan_type type;
 	uint8_t *buffer;
@@ -303,7 +291,7 @@ static int gw16012_execute_queue(void)
 				gw16012_reset(cmd->cmd.reset->trst, cmd->cmd.reset->srst);
 				break;
 			case JTAG_RUNTEST:
-				LOG_DEBUG_IO("runtest %i cycles, end in %i", cmd->cmd.runtest->num_cycles,
+				LOG_DEBUG_IO("runtest %u cycles, end in %i", cmd->cmd.runtest->num_cycles,
 						cmd->cmd.runtest->end_state);
 				gw16012_end_state(cmd->cmd.runtest->end_state);
 				gw16012_runtest(cmd->cmd.runtest->num_cycles);

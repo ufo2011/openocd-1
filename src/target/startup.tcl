@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 # Defines basic Tcl procs for OpenOCD target module
 
 proc new_target_name { } {
@@ -112,10 +114,21 @@ proc ocd_process_reset_inner { MODE } {
 				continue
 			}
 
-			# don't wait for targets where examination is deferred
-			# they can not be halted anyway at this point
-			if { ![$t was_examined] && [$t examine_deferred] } {
-				continue
+			if { ![$t was_examined] } {
+				# don't wait for targets where examination is deferred
+				# they can not be halted anyway at this point
+				if { [$t examine_deferred] } {
+					continue
+				}
+				# try to re-examine or target state will be unknown
+				$t invoke-event examine-start
+				set err [catch "$t arp_examine allow-defer"]
+				if { $err } {
+					$t invoke-event examine-fail
+					return -code error [format "TARGET: %s - Not examined" $t]
+				} else {
+					$t invoke-event examine-end
+				}
 			}
 
 			# Wait up to 1 second for target to halt. Why 1sec? Cause
@@ -206,6 +219,45 @@ proc init_target_events {} {
 proc init_board {} {
 }
 
+lappend _telnet_autocomplete_skip _post_init_target_array_mem
+proc _post_init_target_array_mem {} {
+	set targets [target names]
+	lappend targets ""
+
+	foreach t $targets {
+		if {$t != ""} {
+			set t "$t "
+		}
+		eval [format	{lappend ::_telnet_autocomplete_skip "%smem2array"} $t]
+		eval [format	{proc {%smem2array} {arrayname bitwidth address count {phys ""}} {
+							echo "DEPRECATED! use 'read_memory' not 'mem2array'"
+
+							upvar $arrayname $arrayname
+							set $arrayname ""
+							set i 0
+
+							foreach elem [%sread_memory $address $bitwidth $count {*}$phys] {
+								set ${arrayname}($i) $elem
+								incr i
+							}
+						}} $t $t]
+		eval [format    {lappend ::_telnet_autocomplete_skip "%sarray2mem"} $t]
+		eval [format    {proc {%sarray2mem} {arrayname bitwidth address count {phys ""}} {
+							echo "DEPRECATED! use 'write_memory' not 'array2mem'"
+
+							upvar $arrayname $arrayname
+							set data ""
+
+							for {set i 0} {$i < $count} {incr i} {
+								lappend data [expr $${arrayname}($i)]
+							}
+
+							%swrite_memory $address $bitwidth $data {*}$phys
+						}} $t $t]
+	}
+}
+lappend post_init_commands _post_init_target_array_mem
+
 # smp_on/smp_off were already DEPRECATED in v0.11.0 through http://openocd.zylin.com/4615
 lappend _telnet_autocomplete_skip "aarch64 smp_on"
 proc "aarch64 smp_on" {args} {
@@ -242,3 +294,25 @@ proc "mips_m4k smp_off" {args} {
 	echo "DEPRECATED! use 'mips_m4k smp off' not 'mips_m4k smp_off'"
 	eval mips_m4k smp off $args
 }
+
+lappend _telnet_autocomplete_skip _post_init_target_cortex_a_cache_auto
+proc _post_init_target_cortex_a_cache_auto {} {
+	set cortex_a_found 0
+
+	foreach t [target names] {
+		if { [$t cget -type] != "cortex_a" } { continue }
+		set cortex_a_found 1
+		lappend ::_telnet_autocomplete_skip "$t cache auto"
+		proc "$t cache auto" { enable } {
+			echo "DEPRECATED! Don't use anymore '[dict get [info frame 0] proc] $enable' as it's always enabled"
+		}
+	}
+
+	if { $cortex_a_found } {
+		lappend ::_telnet_autocomplete_skip "cache auto"
+		proc "cache auto" { enable } {
+			echo "DEPRECATED! Don't use anymore 'cache auto $enable' as it's always enabled"
+		}
+	}
+}
+lappend post_init_commands _post_init_target_cortex_a_cache_auto

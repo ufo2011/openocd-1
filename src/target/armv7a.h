@@ -1,18 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+
 /***************************************************************************
  *    Copyright (C) 2009 by David Brownell                                 *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 #ifndef OPENOCD_TARGET_ARMV7A_H
@@ -30,7 +19,7 @@ enum {
 	ARM_CPSR = 16
 };
 
-#define ARMV7_COMMON_MAGIC 0x0A450999
+#define ARMV7_COMMON_MAGIC 0x0A450999U
 
 /* VA to PA translation operations opc2 values*/
 #define V2PCWPR  0
@@ -76,8 +65,6 @@ struct armv7a_cache_common {
 	struct armv7a_arch_cache arch[6];	/* cache info, L1 - L7 */
 	int i_cache_enabled;
 	int d_u_cache_enabled;
-	int auto_cache_enabled;			/* openocd automatic
-						 * cache handling */
 	/* outer unified cache if some */
 	void *outer_cache;
 	int (*flush_all_data_cache)(struct target *target);
@@ -98,8 +85,9 @@ struct armv7a_mmu_common {
 };
 
 struct armv7a_common {
+	unsigned int common_magic;
+
 	struct arm arm;
-	int common_magic;
 	struct reg_cache *core_cache;
 
 	/* Core Debug Unit */

@@ -1,19 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 /***************************************************************************
  *   Copyright (C) 2011-2013 by Martin Schmoelzer                          *
  *   <martin.schmoelzer@student.tuwien.ac.at>                              *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
  ***************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -55,9 +44,6 @@
 
 /** USB interface number */
 #define USB_INTERFACE            0
-
-/** libusb timeout in ms */
-#define USB_TIMEOUT              5000
 
 /** Delay (in microseconds) to wait while EZ-USB performs ReNumeration. */
 #define ULINK_RENUMERATION_DELAY 1500000
@@ -241,7 +227,7 @@ static int ulink_post_process_scan(struct ulink_cmd *ulink_cmd);
 static int ulink_post_process_queue(struct ulink *device);
 
 /* adapter driver functions */
-static int ulink_execute_queue(void);
+static int ulink_execute_queue(struct jtag_command *cmd_queue);
 static int ulink_khz(int khz, int *jtag_speed);
 static int ulink_speed(int speed);
 static int ulink_speed_div(int speed, int *khz);
@@ -335,7 +321,7 @@ static int ulink_cpu_reset(struct ulink *device, unsigned char reset_bit)
 
 	ret = libusb_control_transfer(device->usb_device_handle,
 			(LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE),
-			REQUEST_FIRMWARE_LOAD, CPUCS_REG, 0, &reset_bit, 1, USB_TIMEOUT);
+			REQUEST_FIRMWARE_LOAD, CPUCS_REG, 0, &reset_bit, 1, LIBUSB_TIMEOUT_MS);
 
 	/* usb_control_msg() returns the number of bytes transferred during the
 	 * DATA stage of the control transfer - must be exactly 1 in this case! */
@@ -478,7 +464,7 @@ static int ulink_write_firmware_section(struct ulink *device,
 		ret = libusb_control_transfer(device->usb_device_handle,
 				(LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE),
 				REQUEST_FIRMWARE_LOAD, addr, FIRMWARE_ADDR, (unsigned char *)data_ptr,
-				chunk_size, USB_TIMEOUT);
+				chunk_size, LIBUSB_TIMEOUT_MS);
 
 		if (ret != (int)chunk_size) {
 			/* Abort if libusb sent less data than requested */
@@ -604,8 +590,6 @@ static int ulink_get_queue_size(struct ulink *device,
  * Clear the OpenULINK command queue.
  *
  * @param device pointer to struct ulink identifying ULINK driver instance.
- * @return on success: ERROR_OK
- * @return on failure: ERROR_FAIL
  */
 static void ulink_clear_queue(struct ulink *device)
 {
@@ -664,7 +648,7 @@ static int ulink_append_queue(struct ulink *device, struct ulink_cmd *ulink_cmd)
 	if ((newsize_out > 64) || (newsize_in > 64)) {
 		/* New command does not fit. Execute all commands in queue before starting
 		 * new queue with the current command as first entry. */
-		ret = ulink_execute_queued_commands(device, USB_TIMEOUT);
+		ret = ulink_execute_queued_commands(device, LIBUSB_TIMEOUT_MS);
 
 		if (ret == ERROR_OK)
 			ret = ulink_post_process_queue(device);
@@ -1489,7 +1473,7 @@ static int ulink_queue_scan(struct ulink *device, struct jtag_command *cmd)
 
 	/* Allocate TDO buffer if required */
 	if ((type == SCAN_IN) || (type == SCAN_IO)) {
-		tdo_buffer_start = calloc(sizeof(uint8_t), scan_size_bytes);
+		tdo_buffer_start = calloc(scan_size_bytes, sizeof(uint8_t));
 
 		if (!tdo_buffer_start)
 			return ERROR_FAIL;
@@ -1717,15 +1701,17 @@ static int ulink_queue_reset(struct ulink *device, struct jtag_command *cmd)
  */
 static int ulink_queue_pathmove(struct ulink *device, struct jtag_command *cmd)
 {
-	int ret, i, num_states, batch_size, state_count;
+	int ret, state_count;
 	tap_state_t *path;
 	uint8_t tms_sequence;
 
-	num_states = cmd->cmd.pathmove->num_states;
+	unsigned int num_states = cmd->cmd.pathmove->num_states;
 	path = cmd->cmd.pathmove->path;
 	state_count = 0;
 
 	while (num_states > 0) {
+		unsigned int batch_size;
+
 		tms_sequence = 0;
 
 		/* Determine batch size */
@@ -1734,7 +1720,7 @@ static int ulink_queue_pathmove(struct ulink *device, struct jtag_command *cmd)
 		else
 			batch_size = num_states;
 
-		for (i = 0; i < batch_size; i++) {
+		for (unsigned int i = 0; i < batch_size; i++) {
 			if (tap_state_transition(tap_get_state(), false) == path[state_count]) {
 				/* Append '0' transition: clear bit 'i' in tms_sequence */
 				buf_set_u32(&tms_sequence, i, 1, 0x0);
@@ -1790,14 +1776,13 @@ static int ulink_queue_sleep(struct ulink *device, struct jtag_command *cmd)
 static int ulink_queue_stableclocks(struct ulink *device, struct jtag_command *cmd)
 {
 	int ret;
-	unsigned num_cycles;
 
 	if (!tap_is_state_stable(tap_get_state())) {
 		LOG_ERROR("JTAG_STABLECLOCKS: state not stable");
 		return ERROR_FAIL;
 	}
 
-	num_cycles = cmd->cmd.stableclocks->num_cycles;
+	unsigned int num_cycles = cmd->cmd.stableclocks->num_cycles;
 
 	/* TMS stays either high (Test Logic Reset state) or low (all other states) */
 	if (tap_get_state() == TAP_RESET)
@@ -1921,9 +1906,9 @@ static int ulink_post_process_queue(struct ulink *device)
  * @return on success: ERROR_OK
  * @return on failure: ERROR_FAIL
  */
-static int ulink_execute_queue(void)
+static int ulink_execute_queue(struct jtag_command *cmd_queue)
 {
-	struct jtag_command *cmd = jtag_command_queue;
+	struct jtag_command *cmd = cmd_queue;
 	int ret;
 
 	while (cmd) {
@@ -1962,7 +1947,7 @@ static int ulink_execute_queue(void)
 	}
 
 	if (ulink_handle->commands_in_queue > 0) {
-		ret = ulink_execute_queued_commands(ulink_handle, USB_TIMEOUT);
+		ret = ulink_execute_queued_commands(ulink_handle, LIBUSB_TIMEOUT_MS);
 		if (ret != ERROR_OK)
 			return ret;
 
